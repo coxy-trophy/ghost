@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -73,6 +74,53 @@ class ActionExecutorTest {
             listOf(Action("toggle_torch", ActionTier.TIER_1_REVERSIBLE, mapOf("state" to "off")))
         )
         assertTrue("torch-off should succeed", off.results[0].success)
+    }
+
+    /**
+     * Regression: SuExecutor's package-name regex rejected every valid package name, so this
+     * Tier 2 action always came back "invalid package name" without ever reaching the shell.
+     *
+     * The target package deliberately does not exist, so `am force-stop` is a no-op. The assertion
+     * is about validation, not about the shell succeeding — a device without root still passes.
+     */
+    @Test
+    fun tier2_force_stop_accepts_a_valid_package_name() = runBlocking {
+        val batch = executor.runImmediate(
+            listOf(
+                Action(
+                    "force_stop_app",
+                    ActionTier.TIER_2_DISRUPTIVE,
+                    mapOf("package" to "com.coxy.ghost.nonexistent.testtarget")
+                )
+            )
+        )
+
+        assertTrue("Tier 2 should execute immediately", batch.pending.isEmpty())
+        assertEquals(1, batch.results.size)
+        assertFalse(
+            "valid package name was rejected by the validator: ${batch.results[0].message}",
+            batch.results[0].message.contains("invalid package name")
+        )
+    }
+
+    @Test
+    fun tier2_force_stop_rejects_shell_injection() = runBlocking {
+        val batch = executor.runImmediate(
+            listOf(
+                Action(
+                    "force_stop_app",
+                    ActionTier.TIER_2_DISRUPTIVE,
+                    mapOf("package" to "com.coxy.ghost; reboot")
+                )
+            )
+        )
+
+        assertEquals(1, batch.results.size)
+        assertFalse("injection attempt must not succeed", batch.results[0].success)
+        assertTrue(
+            "should be rejected by the validator, got: ${batch.results[0].message}",
+            batch.results[0].message.contains("invalid package name")
+        )
     }
 
     @Test

@@ -72,12 +72,8 @@ object SuExecutor {
         }
     }
 
-    private fun sanitizePackage(pkg: String?): String {
-        val raw = pkg?.trim() ?: ""
-        // Package names are [a-zA-Z0-9._]. Reject anything else to avoid shell injection.
-        require(raw.matches(Regex("^[a-zA-Z0-9._]+\\$"))) { "invalid package name '$raw'" }
-        return raw
-    }
+    // Package names are validated by [PackageNames] — the shared shell-injection boundary.
+    private fun sanitizePackage(pkg: String?): String = PackageNames.sanitize(pkg)
 
     private fun exec(command: String): String {
         val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))

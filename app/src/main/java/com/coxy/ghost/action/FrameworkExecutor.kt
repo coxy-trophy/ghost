@@ -112,11 +112,7 @@ class FrameworkExecutor(private val context: Context) {
             ?: throw IllegalArgumentException("'$raw' is not an integer")
     }
 
-    private fun sanitizePackage(pkg: String?): String {
-        val raw = pkg?.trim() ?: ""
-        require(raw.matches(Regex("^[a-zA-Z0-9._]+\$"))) { "invalid package name '$raw'" }
-        return raw
-    }
+    private fun sanitizePackage(pkg: String?): String = PackageNames.sanitize(pkg)
 
     companion object {
         private const val TAG = "FrameworkExecutor"
