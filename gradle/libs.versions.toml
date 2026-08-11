@@ -1,0 +1,82 @@
+[versions]
+
+# Plugins
+agp = "8.13.2"
+kotlin = "2.3.0"
+ksp = "2.3.0"
+
+# AndroidX
+activity = "1.12.2"
+appcompat = "1.7.1"
+core-ktx = "1.17.0"
+constraint-layout = "2.2.1"
+datastore-preferences = "1.2.0"
+lifecycle = "2.8.7"
+room = "2.7.2"
+
+# Material
+material = "1.13.0"
+
+# GMS
+play-services-location = "21.3.0"
+
+# ML — on-device sentence embeddings (Phase 6 memory). TFLite runtime only; the MiniLM INT8
+# model + BERT vocab are bundled as assets. No Task Library, no native rebuild of :lib.
+tflite = "2.16.1"
+
+# Phase 8 cloud: secure API key storage.
+security-crypto = "1.1.0-alpha06"
+
+# Testing
+espresso-core = "3.7.0"
+androidx-junit = "1.3.0"
+junit = "4.13.2"
+
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+jetbrains-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+
+
+[libraries]
+
+# AndroidX
+androidx-activity = { group = "androidx.activity", name = "activity", version.ref = "activity" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraint-layout" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore-preferences" }
+androidx-lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycle" }
+
+# Room (Phase 6 memory store)
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+
+#Material
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+
+# GMS
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "play-services-location" }
+
+# ML (Phase 6) — TFLite runtime for the on-device sentence embedder
+tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tflite" }
+
+# Phase 8 cloud: EncryptedSharedPreferences for the Ollama API key.
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }
+
+# Testing
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso-core" }
+androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-junit" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+[bundles]
+androidx = [
+    "androidx-activity",
+    "androidx-appcompat",
+    "androidx-constraintlayout",
+    "androidx-core-ktx",
+    "androidx-datastore-preferences",
+]

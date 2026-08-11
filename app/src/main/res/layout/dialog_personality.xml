@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phase 6.3: trait editor dialog. 8 sliders + current value labels + snapshot actions. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:id="@+id/slider_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Slider rows will be added programmatically to keep Kotlin source compact.
+             Each row is a horizontal LinearLayout: TextView (label) + SeekBar + TextView (value). -->
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_snapshot"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/ghost_personality_snapshot" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_rollback"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/ghost_personality_rollback" />
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,42 @@
+<resources>
+    <string name="app_name">GHOST</string>
+
+    <!-- Foreground service notification -->
+    <string name="ghost_channel_name">GHOST service</string>
+    <string name="ghost_channel_desc">Keeps the on-device GHOST inference daemon alive.</string>
+    <string name="ghost_notif_title">GHOST</string>
+    <string name="ghost_notif_text">Ambient daemon running on-device</string>
+    <string name="ghost_notif_stop">Stop GHOST</string>
+
+    <!-- Control panel -->
+    <string name="ghost_start">Start GHOST</string>
+    <string name="ghost_stop">Stop GHOST</string>
+    <string name="ghost_pick_model">Pick model</string>
+    <string name="ghost_capture">📷 Capture frame</string>
+    <string name="ghost_personality">🎭 Personality</string>
+    <string name="ghost_personality_title">GHOST Personality</string>
+    <string name="ghost_personality_save">Save</string>
+    <string name="ghost_personality_reset">Reset to baseline</string>
+    <string name="ghost_personality_snapshots">Snapshots</string>
+    <string name="ghost_personality_snapshot">📸 Snapshot current profile</string>
+    <string name="ghost_personality_rollback">↩ Rollback to snapshot</string>
+    <string name="ghost_personality_applied">Personality updated; model reloading…</string>
+    <string name="ghost_personality_baseline">Reset to baseline</string>
+
+    <!-- Phase 8 cloud brain -->
+    <string name="ghost_cloud">☁️ Cloud brain</string>
+    <string name="ghost_cloud_title">Cloud Brain (Ollama)</string>
+    <string name="ghost_cloud_key_hint">Ollama API key</string>
+    <string name="ghost_cloud_enabled">Use cloud brain when online</string>
+    <string name="ghost_cloud_logging">Log interactions for distillation</string>
+    <string name="ghost_cloud_privacy">Privacy filter</string>
+    <string name="ghost_cloud_save">Save</string>
+
+    <!-- Phase 8.1 mic toggle -->
+    <string name="ghost_mic_on">🎤 Mic on</string>
+    <string name="ghost_mic_off">🎤 Mic off</string>
+
+    <!-- Phase 5 kill switch -->
+    <string name="ghost_kill_tile">Kill GHOST</string>
+    <string name="ghost_accessibility_desc">GHOST hardware kill switch — hold both volume keys to stop GHOST. Does not read screen content.</string>
+</resources>
