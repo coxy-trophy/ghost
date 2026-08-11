@@ -33,6 +33,7 @@ import com.coxy.ghost.perception.ContextStore
 import com.coxy.ghost.perception.GhostPrompts
 import com.coxy.ghost.perception.MicListener
 import com.coxy.ghost.perception.wakeword.KwsSampleRecorder
+import java.io.File
 import com.coxy.ghost.perception.PerceptionManager
 import com.coxy.ghost.perception.RetentionManager
 import com.coxy.ghost.perception.toPromptBlock
@@ -259,6 +260,35 @@ class GhostService : LifecycleService() {
                     GhostPrefs.setMicEnabled(applicationContext, next)
                     micListener?.setEnabled(next)
                     Log.i(TAG, "Mic ${if (next) "enabled" else "disabled"} by user toggle")
+                }
+            }
+            ACTION_SET_MODEL_PATH -> {
+                // Persist the GGUF path without the UI. MainActivity's document picker was the only
+                // way to set this, so a wiped DataStore (e.g. after the app's uid changed) left the
+                // local engine idle with no way back except tapping through the picker by hand.
+                val path = intent.getStringExtra(EXTRA_PATH)
+                Log.i(TAG, "Set model path requested: $path")
+                lifecycleScope.launch {
+                    val file = path?.let { File(it) }
+                    if (file == null || !file.isFile || !file.canRead()) {
+                        Log.w(TAG, "Model path missing or unreadable — ignoring: $path")
+                        return@launch
+                    }
+                    GhostPrefs.setModelPath(applicationContext, file.path)
+                    Log.i(TAG, "Model path persisted: ${file.path}")
+                    // setSystemPrompt is once-only per load, so re-arm the guard around a reload —
+                    // same handling as reloadModelForPersonality.
+                    if (engine.state.value.isModelLoaded) {
+                        Log.i(TAG, "Swapping the loaded model for ${file.name}")
+                        systemPromptAppliedInProcess = false
+                        runCatching { engine.cleanUp() }
+                    }
+                    runCatching { engine.loadModel(file.path) }
+                        .onSuccess {
+                            applySystemPromptOnce()
+                            Log.i(TAG, "Model loaded from ${file.path}")
+                        }
+                        .onFailure { Log.e(TAG, "Model load failed for ${file.path}", it) }
                 }
             }
             ACTION_CAPTURE_KWS -> {
@@ -579,7 +609,9 @@ class GhostService : LifecycleService() {
         const val ACTION_TOGGLE_MIC = "com.coxy.ghost.action.TOGGLE_MIC"
         const val ACTION_KILL = "com.coxy.ghost.action.KILL"
         const val ACTION_CAPTURE_KWS = "com.coxy.ghost.action.CAPTURE_KWS"
+        const val ACTION_SET_MODEL_PATH = "com.coxy.ghost.action.SET_MODEL_PATH"
         const val EXTRA_FACING = "facing"
+        const val EXTRA_PATH = "path"
         const val EXTRA_LABEL = "label"
         const val EXTRA_SECONDS = "seconds"
 
