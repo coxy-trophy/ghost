@@ -32,6 +32,7 @@ import com.coxy.ghost.perception.CameraCapture
 import com.coxy.ghost.perception.ContextStore
 import com.coxy.ghost.perception.GhostPrompts
 import com.coxy.ghost.perception.MicListener
+import com.coxy.ghost.perception.wakeword.KwsSampleRecorder
 import com.coxy.ghost.perception.PerceptionManager
 import com.coxy.ghost.perception.RetentionManager
 import com.coxy.ghost.perception.toPromptBlock
@@ -258,6 +259,25 @@ class GhostService : LifecycleService() {
                     GhostPrefs.setMicEnabled(applicationContext, next)
                     micListener?.setEnabled(next)
                     Log.i(TAG, "Mic ${if (next) "enabled" else "disabled"} by user toggle")
+                }
+            }
+            ACTION_CAPTURE_KWS -> {
+                // Phase 5.2 retraining aid: record a wake-word training clip through the same
+                // AudioRecord path the detector runs on. MicListener owns the mic, so pause it for
+                // the duration and resume afterwards (two MIC-source clients are not reliable here).
+                val label = intent.getStringExtra(EXTRA_LABEL) ?: KwsSampleRecorder.LABEL_POSITIVE
+                val seconds = intent.getIntExtra(EXTRA_SECONDS, 3)
+                Log.i(TAG, "KWS capture requested (label=$label seconds=$seconds)")
+                lifecycleScope.launch {
+                    val wasEnabled = MicListener.isRunning
+                    if (wasEnabled) micListener?.setEnabled(false)
+                    // Give the recognizer/AudioRecord teardown a moment to release the mic.
+                    delay(KWS_MIC_RELEASE_MS)
+                    val file = withContext(Dispatchers.IO) {
+                        KwsSampleRecorder.record(applicationContext, label, seconds)
+                    }
+                    Log.i(TAG, "KWS capture ${if (file != null) "wrote ${file.absolutePath}" else "FAILED"}")
+                    if (wasEnabled) micListener?.setEnabled(true)
                 }
             }
             ACTION_KILL -> {
@@ -558,7 +578,13 @@ class GhostService : LifecycleService() {
         const val ACTION_CAPTURE_FRAME = "com.coxy.ghost.action.CAPTURE_FRAME"
         const val ACTION_TOGGLE_MIC = "com.coxy.ghost.action.TOGGLE_MIC"
         const val ACTION_KILL = "com.coxy.ghost.action.KILL"
+        const val ACTION_CAPTURE_KWS = "com.coxy.ghost.action.CAPTURE_KWS"
         const val EXTRA_FACING = "facing"
+        const val EXTRA_LABEL = "label"
+        const val EXTRA_SECONDS = "seconds"
+
+        /** Time to let MicListener's AudioRecord/recognizer release the mic before we grab it. */
+        private const val KWS_MIC_RELEASE_MS = 600L
 
         // Vision auto-capture for voice commands (parity with MainActivity's typed path).
         private val VISION_KEYWORDS = listOf("see", "look", "camera", "frame", "in front", "what's there")

@@ -13,6 +13,7 @@ The exported TFLite graph is end-to-end: waveform -> STFT spectrogram -> small C
 so Kotlin only has to feed a raw audio buffer.
 """
 
+import argparse
 import os
 import random
 import shutil
@@ -117,8 +118,8 @@ def resample(data: np.ndarray, orig_sr: int, target_sr: int = SAMPLE_RATE) -> np
     return np.interp(new_x, old_x, data).astype(np.float32)
 
 
-def load_wav(path: Path) -> np.ndarray:
-    """Fast minimal WAV loader. All training/test files are 16-bit PCM, so use stdlib wave."""
+def decode_wav(path: Path) -> np.ndarray:
+    """Decode a WAV to mono float32 at SAMPLE_RATE, keeping its full length."""
     with wave.open(str(path), "rb") as wf:
         channels = wf.getnchannels()
         sr = wf.getframerate()
@@ -133,7 +134,12 @@ def load_wav(path: Path) -> np.ndarray:
         raise ValueError(f"Unsupported sample width {width} in {path}")
     if channels > 1:
         data = data.reshape(-1, channels).mean(axis=1)
-    data = resample(data, sr, SAMPLE_RATE)
+    return resample(data, sr, SAMPLE_RATE).astype(np.float32)
+
+
+def load_wav(path: Path) -> np.ndarray:
+    """Load a WAV as exactly one second at 16 kHz (truncated or zero-padded)."""
+    data = decode_wav(path)
     if len(data) > NUM_SAMPLES:
         data = data[:NUM_SAMPLES]
     else:
@@ -149,6 +155,82 @@ def write_wav(path: Path, data: np.ndarray):
         wf.setsampwidth(2)
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(samples.tobytes())
+
+
+def slice_windows(data: np.ndarray, hop: int) -> list:
+    """Cut a long recording into overlapping 1-second windows."""
+    out = []
+    if len(data) < NUM_SAMPLES:
+        return [np.pad(data, (0, NUM_SAMPLES - len(data)), mode="constant").astype(np.float32)]
+    for start in range(0, len(data) - NUM_SAMPLES + 1, max(1, hop)):
+        out.append(data[start:start + NUM_SAMPLES].astype(np.float32))
+    return out
+
+
+def loudest_window(data: np.ndarray, jitters: int = 3) -> list:
+    """
+    Pick the 1-second window containing the utterance, plus a few jittered offsets around it.
+
+    A recorded positive clip is a few seconds long with one "Hey Ghost" somewhere inside it.
+    Slicing it blindly would label near-silent windows as positive, which is exactly the kind of
+    label noise that produces a detector firing on anything. Energy is a crude but effective way
+    to find the spoken part.
+    """
+    windows = slice_windows(data, hop=SAMPLE_RATE // 10)  # 100 ms hop
+    if not windows:
+        return []
+    energies = [float(np.mean(w ** 2)) for w in windows]
+    best = int(np.argmax(energies))
+    picked = [windows[best]]
+    for _ in range(jitters):
+        offset = random.randint(-3, 3)  # +/- 300 ms around the utterance
+        idx = min(max(best + offset, 0), len(windows) - 1)
+        picked.append(windows[idx])
+    return picked
+
+
+def load_real_clips(real_dir: Path, hold_out: bool = True):
+    """
+    Load recordings captured on the phone itself (tools/record_kws_samples.sh).
+
+    Returns (positive_windows, negative_windows, held_out_positive, held_out_negative). The
+    held-out pair is written to the androidTest assets so the instrumented gate tests against real
+    audio rather than macOS `say` synthesis.
+    """
+    pos_dir = real_dir / "positives"
+    neg_dir = real_dir / "negatives"
+    pos_files = sorted(pos_dir.glob("*.wav")) if pos_dir.is_dir() else []
+    neg_files = sorted(neg_dir.glob("*.wav")) if neg_dir.is_dir() else []
+
+    if not pos_files and not neg_files:
+        return [], [], None, None
+
+    held_pos = held_neg = None
+    if hold_out and len(pos_files) > 1:
+        held_pos_file = pos_files.pop(random.randrange(len(pos_files)))
+        picked = loudest_window(decode_wav(held_pos_file), jitters=0)
+        held_pos = picked[0] if picked else None
+    if hold_out and len(neg_files) > 1:
+        held_neg_file = neg_files.pop(random.randrange(len(neg_files)))
+        windows = slice_windows(decode_wav(held_neg_file), hop=NUM_SAMPLES)
+        held_neg = random.choice(windows) if windows else None
+
+    positives = []
+    for f in pos_files:
+        try:
+            positives.extend(loudest_window(decode_wav(f)))
+        except Exception as e:
+            print(f"  skipping real positive {f.name}: {e}")
+
+    negatives = []
+    for f in neg_files:
+        try:
+            # 0.5 s hop: every window of ambient/other speech is a valid hard negative.
+            negatives.extend(slice_windows(decode_wav(f), hop=NUM_SAMPLES // 2))
+        except Exception as e:
+            print(f"  skipping real negative {f.name}: {e}")
+
+    return positives, negatives, held_pos, held_neg
 
 
 def generate_positive_sample(positives_dir: Path, phrase: str, voice: str) -> Optional[Path]:
@@ -292,7 +374,34 @@ class TFLiteAudioModel(tf.Module):
         return logits
 
 
+def parse_args():
+    p = argparse.ArgumentParser(description="Train the 'Hey Ghost' wake-word spotter.")
+    p.add_argument(
+        "--real-data",
+        type=Path,
+        default=Path(__file__).parent / "kws_data" / "real",
+        help="Directory with positives/ and negatives/ recorded on the phone "
+             "(see record_kws_samples.sh). Real clips are the ones that match the runtime "
+             "acoustic path; synthetic `say` audio does not.",
+    )
+    p.add_argument(
+        "--real-oversample",
+        type=int,
+        default=6,
+        help="How many augmented copies to make of each real positive window. Real clips are few "
+             "and worth far more than synthetic ones, so they are repeated (default: 6).",
+    )
+    p.add_argument(
+        "--no-synthetic",
+        action="store_true",
+        help="Train on recorded audio only. Use once enough real clips exist — the `say` positives "
+             "are a cold-start crutch, not the target distribution.",
+    )
+    return p.parse_args()
+
+
 def main():
+    args = parse_args()
     seed_all()
     assets_dir, test_assets_dir, data_dir, positives_dir = ensure_dirs()
     model_path = assets_dir / "hey_ghost.tflite"
@@ -313,8 +422,21 @@ def main():
             pass
     print(f"Loaded {len(noise_pool)} noise/negative reference clips")
 
+    # Recordings made on the phone itself, through the same AudioRecord path the detector runs on.
+    # These are the only samples drawn from the runtime distribution; everything else is a proxy.
+    real_pos, real_neg, held_pos, held_neg = load_real_clips(args.real_data)
+    print(f"Real recordings: {len(real_pos)} positive windows, {len(real_neg)} negative windows "
+          f"(from {args.real_data})")
+    if not real_pos:
+        print("  NOTE: no real positives found. Training on synthetic `say` audio alone produces a "
+              "detector that has never heard this microphone, this room, or this voice.")
+        print("  Record some first:  ./tools/record_kws_samples.sh positive 40")
+
+    # Real ambient audio is the right noise domain for augmenting real positives.
+    real_noise_pool = list(real_neg)
+
     # Load any cached positives from a previous run, then generate the rest.
-    cached = sorted(list(positives_dir.glob("*.wav")))
+    cached = [] if args.no_synthetic else sorted(list(positives_dir.glob("*.wav")))
     positives = []
     if cached:
         use_cached = min(len(cached), POSITIVE_COUNT)
@@ -327,7 +449,7 @@ def main():
                 print(f"  cached positives {i}/{use_cached}")
         print(f"Loaded {len(positives)} cached positives")
 
-    need = POSITIVE_COUNT - len(positives)
+    need = 0 if args.no_synthetic else POSITIVE_COUNT - len(positives)
     if need > 0:
         print(f"Generating {need} additional positive samples...")
         attempts = 0
@@ -347,6 +469,17 @@ def main():
                 print(f"  generated {len(positives)}/{POSITIVE_COUNT}")
         if len(positives) < POSITIVE_COUNT:
             print(f"WARNING: only generated {len(positives)}/{POSITIVE_COUNT} positives")
+
+    # Oversample the real positives: there are far fewer of them, and they are worth more.
+    synthetic_count = len(positives)
+    for window in real_pos:
+        positives.append(window)
+        for _ in range(max(0, args.real_oversample - 1)):
+            positives.append(augment_waveform(window.copy(), real_noise_pool or noise_pool))
+    print(f"Positives: {synthetic_count} synthetic + {len(positives) - synthetic_count} real "
+          f"({len(real_pos)} windows x{args.real_oversample})")
+    if not positives:
+        raise RuntimeError("No positive samples at all — record some clips or drop --no-synthetic")
     positives = np.array(positives, dtype=np.float32)
 
     # Save one clean positive sample for the Android test asset, padded to exactly 1 second
@@ -357,9 +490,15 @@ def main():
         test_wav = cached[0] if cached else None
     if test_wav is None:
         raise RuntimeError("Could not generate test wake-word clip")
-    test_data = load_wav(test_wav)  # already padded to NUM_SAMPLES by load_wav
-    write_wav(test_wav_path, test_data)
-    print(f"Saved test wake-word clip to {test_wav_path}")
+    if held_pos is not None:
+        # A real held-out recording beats a `say` clip: the instrumented gate should fail when the
+        # detector cannot hear an actual human through the actual microphone.
+        write_wav(test_wav_path, held_pos)
+        print(f"Saved HELD-OUT REAL test wake-word clip to {test_wav_path}")
+    else:
+        test_data = load_wav(test_wav)  # already padded to NUM_SAMPLES by load_wav
+        write_wav(test_wav_path, test_data)
+        print(f"Saved synthetic test wake-word clip to {test_wav_path} (no real clips available)")
 
     # Save a negative sample for the Android test asset (any mini_speech_commands word).
     # Check the filename, not the full path — the repo is under a directory named "ghost".
@@ -367,13 +506,22 @@ def main():
     while "ghost" in neg_test_src.name.lower():
         neg_test_src = random.choice(noise_files)
     neg_test_wav = test_assets_dir / "negative_test.wav"
-    shutil.copy(neg_test_src, neg_test_wav)
-    print(f"Saved negative test clip to {neg_test_wav}")
+    if held_neg is not None:
+        write_wav(neg_test_wav, held_neg)
+        print(f"Saved HELD-OUT REAL negative test clip to {neg_test_wav}")
+    else:
+        shutil.copy(neg_test_src, neg_test_wav)
+        print(f"Saved dataset negative test clip to {neg_test_wav}")
 
-    # Collect negatives.
-    negative_count = int(POSITIVE_COUNT * NEGATIVE_RATIO)
-    print(f"Collecting {negative_count} negative samples...")
-    negatives = collect_negatives(cmd_dir, negative_count, noise_pool)
+    # Collect negatives. Recorded room audio is the important part — mini_speech_commands is clean
+    # spoken words from a different recording chain, so a model trained only against it has never
+    # seen what this phone's mic actually delivers when nobody is saying "Hey Ghost".
+    negative_count = max(0, int(len(positives) * NEGATIVE_RATIO) - len(real_neg))
+    print(f"Collecting {negative_count} dataset negatives (+ {len(real_neg)} recorded)...")
+    negatives = collect_negatives(cmd_dir, negative_count, noise_pool) if negative_count > 0 \
+        else np.zeros((0, NUM_SAMPLES), dtype=np.float32)
+    if real_neg:
+        negatives = np.concatenate([negatives, np.array(real_neg, dtype=np.float32)], axis=0)
 
     # Combine and shuffle.
     x = np.concatenate([positives, negatives], axis=0)
