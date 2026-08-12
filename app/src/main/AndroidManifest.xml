@@ -22,6 +22,17 @@
     <!-- Phase 8 cloud brain: reach the Ollama Cloud API. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Phase 4.5 perception. BLUETOOTH_SCAN carries neverForLocation: GHOST counts nearby BLE
+         devices and names only ones already paired to this phone, and never derives position from
+         them. READ_PHONE_STATE is for call state and signal only — no numbers, contacts or
+         messages. NFC is declared for completeness; a background service cannot read tags. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.NFC" />
+
     <!-- Phase 5 kill switch: custom permission gating the exported KillReceiver. Runtime
          (dangerous) so it can be granted to com.android.shell via `pm grant` (normal-protection
          perms are install-time-only and reject pm grant). Granted once so adb can fire KILL. -->

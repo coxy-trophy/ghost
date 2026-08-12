@@ -35,7 +35,9 @@ import com.coxy.ghost.perception.GhostPrompts
 import com.coxy.ghost.perception.MicListener
 import com.coxy.ghost.perception.wakeword.KwsSampleRecorder
 import java.io.File
+import com.coxy.ghost.perception.BleScanner
 import com.coxy.ghost.perception.PerceptionManager
+import com.coxy.ghost.perception.RadioWatcher
 import com.coxy.ghost.perception.RetentionManager
 import com.coxy.ghost.perception.toPromptBlock
 import com.coxy.ghost.action.ActionExecutor
@@ -69,6 +71,9 @@ class GhostService : LifecycleService() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var startTimeMs: Long = 0L
     private var perception: PerceptionManager? = null
+    // Phase 4.5: nearby BLE devices + radio state (call, signal, NFC).
+    private var bleScanner: BleScanner? = null
+    private var radioWatcher: RadioWatcher? = null
     private var micListener: MicListener? = null
     private var cameraCapture: CameraCapture? = null
     private var retention: RetentionManager? = null
@@ -104,6 +109,8 @@ class GhostService : LifecycleService() {
         // Perception layer: buckets sensor + location data into a ContextState the chat path
         // prepends to each prompt. Independent of the engine — starts before the model is loaded.
         perception = PerceptionManager(applicationContext).also { it.start() }
+        bleScanner = BleScanner(applicationContext).also { it.start() }
+        radioWatcher = RadioWatcher(applicationContext).also { it.start() }
 
         // Phase 5 perception: mic (continuous, D2) + camera (on-demand, D2) + rolling-window
         // retention (D4). Each runs on its own thread and only writes ContextStore — never the
@@ -238,6 +245,10 @@ class GhostService : LifecycleService() {
                 Log.i(TAG, "Refresh perception requested (permissions likely just granted)")
                 perception?.stop()
                 perception = PerceptionManager(applicationContext).also { it.start() }
+                bleScanner?.stop()
+                bleScanner = BleScanner(applicationContext).also { it.start() }
+                radioWatcher?.stop()
+                radioWatcher = RadioWatcher(applicationContext).also { it.start() }
                 micListener?.stop()
                 micListener = MicListener(applicationContext, retention).also { it.start() }
                 if (cameraCapture == null) cameraCapture = CameraCapture(applicationContext, retention)
@@ -325,6 +336,8 @@ class GhostService : LifecycleService() {
                 lifecycleScope.launch {
                     GhostPrefs.setEnabled(applicationContext, false)
                     perception?.stop(); perception = null
+                    bleScanner?.stop(); bleScanner = null
+                    radioWatcher?.stop(); radioWatcher = null
                     micListener?.stop(); micListener = null
                     cameraCapture?.close(); cameraCapture = null
                     retention?.clear(); retention = null
@@ -351,6 +364,10 @@ class GhostService : LifecycleService() {
         Log.i(TAG, "onDestroy — releasing wake lock (engine is a process singleton; not destroyed here)")
         perception?.stop()
         perception = null
+        bleScanner?.stop()
+        bleScanner = null
+        radioWatcher?.stop()
+        radioWatcher = null
         micListener?.stop()
         micListener = null
         cameraCapture?.close()

@@ -63,6 +63,21 @@ class PerceptionManager(private val ctx: Context) {
 
         private const val ACTION_ACTIVITY = "com.coxy.ghost.PERCEPTION_ACTIVITY"
         private const val LIGHT_WRITE_THROTTLE_MS = 2000L
+
+        // Phase 4.5 vendor sensors. These have no Sensor.TYPE_* constant — they are Spreadtrum
+        // additions resolved by string type off the full sensor list.
+        private const val VENDOR_POCKET_MODE = "com.spreadtrum.pocket_mode"
+        private const val VENDOR_FACE_UP_DOWN = "com.spreadtrum.face_up_down"
+
+        /** Orientation/heading come from the fused rotation vector; writes are throttled to this. */
+        private const val ORIENTATION_WRITE_THROTTLE_MS = 3000L
+
+        // Sensor types the device reports but the public SDK does not expose as Sensor.TYPE_*
+        // constants. The numbers are the platform's own, from android.hardware.Sensor.
+        private const val TYPE_TILT_DETECTOR = 22
+        private const val TYPE_PICK_UP_GESTURE = 25
+        private val COMPASS_POINTS =
+            listOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
         private const val STEP_RATE_INTERVAL_MS = 5000L
         private const val AR_INTERVAL_MS = 30_000L
         private const val LOC_INTERVAL_MS = 60_000L
@@ -91,6 +106,9 @@ class PerceptionManager(private val ctx: Context) {
     private var stepJob: Job? = null
 
     @Volatile private var lastLightWriteMs: Long = 0L
+    @Volatile private var lastOrientationWriteMs: Long = 0L
+    /** True once the vendor face-up/down sensor has reported, after which it wins over pitch/roll. */
+    @Volatile private var vendorPostureSeen: Boolean = false
     @Volatile private var lastStepCount: Float = -1f
     @Volatile private var lastStepTs: Long = 0L
     @Volatile private var currentStepRate: Int = 0
@@ -136,10 +154,123 @@ class PerceptionManager(private val ctx: Context) {
                     lastStepCount = count
                     lastStepTs = now
                 }
+                Sensor.TYPE_STEP_DETECTOR -> {
+                    // Per-step trigger. The counter above computes the rate; this just keeps
+                    // lastStepTs fresh so the decay loop doesn't zero the rate mid-stride.
+                    lastStepTs = System.currentTimeMillis()
+                }
+                Sensor.TYPE_ROTATION_VECTOR -> handleRotationVector(event)
+                TYPE_PICK_UP_GESTURE, TYPE_TILT_DETECTOR -> notePickUp()
+                else -> handleVendorSensor(event)
             }
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    /**
+     * Vendor sensors dispatch here because their types are Spreadtrum-specific ints with no
+     * platform constant, so they cannot appear as `when` branches above.
+     */
+    private fun handleVendorSensor(event: SensorEvent) {
+        val v = event.values.firstOrNull() ?: return
+        when (event.sensor.stringType) {
+            VENDOR_POCKET_MODE -> {
+                val pocketed = v > 0.5f
+                update { st ->
+                    // In a pocket it is dark regardless of what the light sensor last saw.
+                    val light = if (pocketed) LightBucket.DARK else st.lightBucket
+                    st.copy(inPocket = pocketed, lightBucket = light, timestampMs = System.currentTimeMillis())
+                }
+            }
+            VENDOR_FACE_UP_DOWN -> {
+                // 1 = face up, 2 = face down on this vendor HAL; anything else is inconclusive.
+                val posture = when (v.toInt()) {
+                    1 -> Posture.FACE_UP
+                    2 -> Posture.FACE_DOWN
+                    else -> return
+                }
+                vendorPostureSeen = true
+                update { it.copy(posture = posture, timestampMs = System.currentTimeMillis()) }
+            }
+        }
+    }
+
+    /**
+     * Orientation + compass heading from the fused rotation vector, which the HAL already computes
+     * from gyroscope + accelerometer + magnetometer. Registering those three raw streams on top
+     * would wake the CPU at up to 100 Hz for data we would only re-fuse ourselves.
+     *
+     * Writes are throttled: the vector arrives continuously, but posture and an eight-point compass
+     * heading change far more slowly than the sensor reports them.
+     */
+    private fun handleRotationVector(event: SensorEvent) {
+        val now = System.currentTimeMillis()
+        if (now - lastOrientationWriteMs < ORIENTATION_WRITE_THROTTLE_MS) return
+        lastOrientationWriteMs = now
+
+        val rotation = FloatArray(9)
+        SensorManager.getRotationMatrixFromVector(rotation, event.values)
+        val angles = FloatArray(3)
+        SensorManager.getOrientation(rotation, angles)
+
+        val azimuth = ((Math.toDegrees(angles[0].toDouble()) + 360.0) % 360.0)
+        val point = COMPASS_POINTS[((azimuth + 22.5) / 45.0).toInt() % 8]
+
+        // pitch/roll decide attitude when the vendor face-up/down sensor is absent or quiet.
+        val pitchDeg = Math.toDegrees(angles[1].toDouble())
+        val rollDeg = Math.toDegrees(angles[2].toDouble())
+        val flat = kotlin.math.abs(pitchDeg) < 25 && kotlin.math.abs(rollDeg) < 25
+        val inverted = kotlin.math.abs(rollDeg) > 155
+        val derived = when {
+            flat -> Posture.FACE_UP
+            inverted -> Posture.FACE_DOWN
+            kotlin.math.abs(pitchDeg) > 60 -> Posture.UPRIGHT
+            else -> Posture.TILTED
+        }
+
+        update { st ->
+            // The vendor face-up/down sensor is authoritative when it has spoken; this only fills in.
+            val posture = if (vendorPostureSeen) st.posture else derived
+            st.copy(posture = posture, heading = point, timestampMs = now)
+        }
+    }
+
+    private fun notePickUp() {
+        val now = System.currentTimeMillis()
+        update { it.copy(lastPickUpMs = now, timestampMs = now) }
+    }
+
+    /**
+     * One-shot sensors (stationary detect, motion detect, significant motion) do not work through
+     * [SensorManager.registerListener] at all — the HAL arms them, fires once, and disarms. They
+     * need [SensorManager.requestTriggerSensor] and must be re-armed by hand after every event,
+     * which is exactly what makes them nearly free: silent until the state actually flips.
+     */
+    private val triggerListener = object : android.hardware.TriggerEventListener() {
+        override fun onTrigger(event: android.hardware.TriggerEvent) {
+            val now = System.currentTimeMillis()
+            when (event.sensor.type) {
+                Sensor.TYPE_STATIONARY_DETECT -> {
+                    update { it.copy(motion = MotionState.STATIONARY, timestampMs = now) }
+                    // Now listen for the opposite transition.
+                    armTrigger(Sensor.TYPE_MOTION_DETECT)
+                }
+                Sensor.TYPE_MOTION_DETECT, Sensor.TYPE_SIGNIFICANT_MOTION -> {
+                    update { it.copy(motion = MotionState.MOVING, timestampMs = now) }
+                    armTrigger(Sensor.TYPE_STATIONARY_DETECT)
+                }
+            }
+            // Re-arm the one that just fired so repeated transitions keep being reported.
+            armTrigger(event.sensor.type)
+        }
+    }
+
+    private fun armTrigger(type: Int) {
+        if (!isRunning) return
+        val s = sensorManager.getDefaultSensor(type) ?: return
+        runCatching { sensorManager.requestTriggerSensor(triggerListener, s) }
+            .onFailure { Log.w(TAG, "requestTriggerSensor failed for type $type", it) }
     }
 
     fun start() {
@@ -167,6 +298,8 @@ class PerceptionManager(private val ctx: Context) {
             }
         }
 
+        registerPostureAndMotionSensors()
+
         // --- GMS availability ---
         gmsOk = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(ctx) ==
             com.google.android.gms.common.ConnectionResult.SUCCESS
@@ -180,6 +313,64 @@ class PerceptionManager(private val ctx: Context) {
             startFrameworkLocation()
             // Activity degrades: leave UNKNOWN unless step/motion sensors indicate otherwise.
             // (StationaryDetect/MotionDetect could refine STILL here — optional, deferred.)
+        }
+    }
+
+    /**
+     * Phase 4.5: everything the device can tell GHOST about how it is being held and whether it is
+     * moving. Deliberately biased toward on-change and one-shot sensors — they stay silent until
+     * the state actually changes, which is why this whole tier costs almost nothing at idle.
+     *
+     * The one continuous registration is the rotation vector (throttled at write time), because
+     * heading has no event-driven equivalent.
+     */
+    private fun registerPostureAndMotionSensors() {
+        // One-shot sensors: armed via requestTriggerSensor, re-armed after each event.
+        // Stationary/motion are a matched pair; significant motion is a coarser backstop.
+        armTrigger(Sensor.TYPE_STATIONARY_DETECT)
+        armTrigger(Sensor.TYPE_MOTION_DETECT)
+        armTrigger(Sensor.TYPE_SIGNIFICANT_MOTION)
+
+        // Special-trigger sensors: these DO use registerListener. Their types are not exposed as
+        // public Sensor.TYPE_* constants, so they are resolved by number.
+        for (type in listOf(TYPE_PICK_UP_GESTURE, TYPE_TILT_DETECTOR)) {
+            val s = sensorManager.getDefaultSensor(type)
+            if (s == null) { Log.i(TAG, "sensor type $type not present"); continue }
+            runCatching {
+                sensorManager.registerListener(sensorListener, s, SensorManager.SENSOR_DELAY_NORMAL, sensorHandler)
+                Log.i(TAG, "registered ${s.stringType}")
+            }.onFailure { Log.w(TAG, "failed to register sensor type $type", it) }
+        }
+
+        // Step detector needs the same permission as the counter.
+        if (hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
+            sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let {
+                runCatching {
+                    sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_NORMAL, sensorHandler)
+                }
+            }
+        }
+
+        // Continuous, but only written every ORIENTATION_WRITE_THROTTLE_MS.
+        sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
+            runCatching {
+                sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI, sensorHandler)
+            }.onFailure { Log.w(TAG, "rotation vector registration failed", it) }
+        } ?: Log.i(TAG, "no rotation vector sensor — heading/posture will stay unknown")
+
+        // Vendor sensors, resolved by string type off the full list.
+        val vendorWanted = setOf(VENDOR_POCKET_MODE, VENDOR_FACE_UP_DOWN)
+        val vendor = runCatching {
+            sensorManager.getSensorList(Sensor.TYPE_ALL).filter { it.stringType in vendorWanted }
+        }.getOrDefault(emptyList())
+        for (s in vendor) {
+            runCatching {
+                sensorManager.registerListener(sensorListener, s, SensorManager.SENSOR_DELAY_NORMAL, sensorHandler)
+                Log.i(TAG, "registered vendor sensor ${s.stringType}")
+            }.onFailure { Log.w(TAG, "failed to register ${s.stringType}", it) }
+        }
+        if (vendor.none { it.stringType == VENDOR_POCKET_MODE }) {
+            Log.i(TAG, "no vendor pocket-mode sensor — inPocket stays unknown (proximity still applies)")
         }
     }
 
@@ -323,6 +514,16 @@ class PerceptionManager(private val ctx: Context) {
         isRunning = false
         Log.i(TAG, "stopping perception")
         runCatching { sensorManager.unregisterListener(sensorListener) }
+        // Trigger sensors are cancelled individually, not by unregisterListener.
+        for (type in listOf(
+            Sensor.TYPE_STATIONARY_DETECT, Sensor.TYPE_MOTION_DETECT, Sensor.TYPE_SIGNIFICANT_MOTION
+        )) {
+            runCatching {
+                sensorManager.getDefaultSensor(type)?.let {
+                    sensorManager.cancelTriggerSensor(triggerListener, it)
+                }
+            }
+        }
         stepJob?.cancel()
         runCatching {
             activityPendingIntent?.let { activityClient?.removeActivityUpdates(it) }
@@ -352,8 +553,15 @@ class PerceptionManager(private val ctx: Context) {
                 stepRatePerMin = 0,
                 gmsAvailable = true,
                 timestampMs = 0L,
+                // Phase 4.5 fields owned by this manager.
+                posture = Posture.UNKNOWN,
+                inPocket = null,
+                heading = null,
+                motion = MotionState.UNKNOWN,
+                lastPickUpMs = 0L,
             )
         }
+        vendorPostureSeen = false
     }
 
     // --- helpers ---

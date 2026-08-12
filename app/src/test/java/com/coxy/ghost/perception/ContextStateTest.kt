@@ -105,4 +105,87 @@ class ContextStateTest {
         assertEquals("Perception: idle", ContextState().toStatusLine())
         assertTrue(ContextState(timestampMs = 1L, activity = Activity.STILL).toStatusLine().contains("still"))
     }
+
+    // --- Phase 4.5: posture, nearby devices, radios ---
+    // The block rides on every prompt into a 1.5B model, so the governing rule for all of these is
+    // "silent unless it carries information". These tests are that rule.
+
+    @Test
+    fun phase45Fields_costNothingWhenNothingIsKnown() {
+        val before = ContextState().toPromptBlock()
+        for (field in listOf("posture=", "pocket=", "heading=", "motion=", "just_picked_up",
+                             "nearby=", "known=", "call=", "signal=", "nfc:")) {
+            assertFalse("$field leaked into an idle block: $before", before.contains(field))
+        }
+    }
+
+    @Test
+    fun postureAndHandlingAreReportedWhenKnown() {
+        val block = ContextState(
+            posture = Posture.FACE_UP,
+            inPocket = false,
+            heading = "NE",
+            motion = MotionState.STATIONARY
+        ).toPromptBlock()
+        assertTrue(block.contains("posture=face_up"))
+        assertTrue(block.contains("heading=NE"))
+        assertTrue(block.contains("motion=stationary"))
+        assertFalse("pocket=no is noise; only 'yes' is worth saying", block.contains("pocket="))
+    }
+
+    @Test
+    fun pocketIsReportedOnlyWhenTrue() {
+        assertTrue(ContextState(inPocket = true).toPromptBlock().contains("pocket=yes"))
+        assertFalse(ContextState(inPocket = null).toPromptBlock().contains("pocket="))
+    }
+
+    @Test
+    fun pickUpIsReportedOnlyWhileStillRecent() {
+        val now = System.currentTimeMillis()
+        assertTrue(ContextState(lastPickUpMs = now).toPromptBlock().contains("just_picked_up"))
+        assertFalse(
+            "a pick-up from an hour ago is not news",
+            ContextState(lastPickUpMs = now - 3_600_000L).toPromptBlock().contains("just_picked_up")
+        )
+    }
+
+    @Test
+    fun nearbyReportsCountAndOnlyPairedNames() {
+        val block = ContextState(nearbyCount = 4, nearbyKnown = "Car Audio, Buds").toPromptBlock()
+        assertTrue(block.contains("nearby=4"))
+        assertTrue(block.contains("known=\"Car Audio, Buds\""))
+        // A scan that saw nothing, and a never-scanned state, both stay silent.
+        assertFalse(ContextState(nearbyCount = 0).toPromptBlock().contains("nearby="))
+        assertFalse(ContextState(nearbyCount = -1).toPromptBlock().contains("nearby="))
+    }
+
+    @Test
+    fun callStateIsReportedOnlyWhenItMeansDoNotSpeak() {
+        assertTrue(ContextState(callState = CallState.RINGING).toPromptBlock().contains("call=ringing"))
+        assertTrue(ContextState(callState = CallState.IN_CALL).toPromptBlock().contains("call=in_call"))
+        assertFalse("idle is the boring default", ContextState(callState = CallState.IDLE).toPromptBlock().contains("call="))
+        assertFalse(ContextState(callState = CallState.UNKNOWN).toPromptBlock().contains("call="))
+    }
+
+    @Test
+    fun signalIsReportedOnlyWhenWeakOrOnACall() {
+        assertTrue("a weak signal explains a slow cloud reply",
+            ContextState(signalLevel = 1, networkType = "LTE").toPromptBlock().contains("signal=1/4(LTE)"))
+        assertFalse("a good signal is not worth a token",
+            ContextState(signalLevel = 4, networkType = "LTE").toPromptBlock().contains("signal="))
+        assertTrue(ContextState(signalLevel = 3, callState = CallState.IN_CALL).toPromptBlock().contains("signal=3/4"))
+    }
+
+    @Test
+    fun hasSignal_isTrueForSourcesThatDoNotStampATimestamp() {
+        // BLE and telephony are not sensor-clocked, so they must be named explicitly in hasSignal
+        // or a phone that only knows those things would send a bare prompt.
+        assertTrue(ContextState(posture = Posture.FACE_DOWN).hasSignal())
+        assertTrue(ContextState(inPocket = true).hasSignal())
+        assertTrue(ContextState(heading = "S").hasSignal())
+        assertTrue(ContextState(motion = MotionState.MOVING).hasSignal())
+        assertTrue(ContextState(nearbyCount = 0).hasSignal())
+        assertTrue(ContextState(callState = CallState.IDLE).hasSignal())
+        assertTrue(ContextState(nfcEnabled = false).hasSignal())
+    }
 }
