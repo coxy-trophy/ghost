@@ -184,10 +184,17 @@ class GhostService : LifecycleService() {
         lifecycleScope.launch(Dispatchers.Default) {
             var lastSeq = 0L
             ContextStore.state.collect { cs ->
-                if (cs.voiceCommandSeq != lastSeq && !cs.voiceCommand.isNullOrBlank()) {
-                    lastSeq = cs.voiceCommandSeq
-                    launch { runVoiceCommand(cs.voiceCommand) }
+                if (cs.voiceCommandSeq == lastSeq) return@collect
+                // Advance the seq before deciding whether we can run it: a command we cannot use
+                // must not leave this observer pinned to a stale seq, and a drop that is logged is
+                // far easier to diagnose than one that is silent.
+                lastSeq = cs.voiceCommandSeq
+                val cmd = cs.voiceCommand
+                if (cmd.isNullOrBlank()) {
+                    Log.w(TAG, "voice command seq ${cs.voiceCommandSeq} carried no text — dropped")
+                    return@collect
                 }
+                launch { runVoiceCommand(cmd) }
             }
         }
 

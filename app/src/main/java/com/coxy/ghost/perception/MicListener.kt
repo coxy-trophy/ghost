@@ -282,7 +282,12 @@ class MicListener(
                 d.init(ctx)
             }
         }
-        ContextStore.update { it.copy(micState = MicState.SILENT, transcriptSnippet = null, voiceCommand = null) }
+        // voiceCommand is deliberately NOT cleared here. The observers in GhostService and
+        // MainActivity trigger on voiceCommandSeq, and StateFlow conflates: clearing the text in
+        // this window let them observe the new seq with the command already gone, so the guard
+        // failed and the spoken command was dropped with no log and no bubble. stopPipeline clears
+        // it when the mic actually shuts down.
+        ContextStore.update { it.copy(micState = MicState.SILENT, transcriptSnippet = null) }
         micHandler.post(AudioLoop())
     }
 

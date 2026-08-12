@@ -224,16 +224,21 @@ class MainActivity : AppCompatActivity() {
             var voiceIdx = -1
             var lastShown = ""
             ContextStore.state.collect { cs ->
-                if (cs.voiceCommandSeq != lastSeq && !cs.voiceCommand.isNullOrBlank()) {
+                val cmd = cs.voiceCommand
+                if (cs.voiceCommandSeq != lastSeq) {
+                    // Advance regardless of whether the text survived, matching GhostService's
+                    // observer so the two can't disagree about which command is current.
                     lastSeq = cs.voiceCommandSeq
-                    voiceIdx = -1
-                    withContext(Dispatchers.Main) {
-                        messages.add(Message(UUID.randomUUID().toString(), cs.voiceCommand, true))
-                        messages.add(Message(UUID.randomUUID().toString(), "", false))
-                        messageAdapter.notifyItemRangeInserted(messages.size - 2, 2)
-                        voiceIdx = messages.size - 1
+                    if (!cmd.isNullOrBlank()) {
+                        voiceIdx = -1
+                        withContext(Dispatchers.Main) {
+                            messages.add(Message(UUID.randomUUID().toString(), cmd, true))
+                            messages.add(Message(UUID.randomUUID().toString(), "", false))
+                            messageAdapter.notifyItemRangeInserted(messages.size - 2, 2)
+                            voiceIdx = messages.size - 1
+                        }
+                        lastShown = ""
                     }
-                    lastShown = ""
                 }
                 val resp = cs.voiceResponse
                 if (voiceIdx >= 0 && resp != null && resp != lastShown) {
