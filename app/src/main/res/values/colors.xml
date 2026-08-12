@@ -1,45 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      GHOST's palette. Dark by design rather than by preference: this thing lives face-up in a dark
-      room beside someone, so a bright surface would be the wrong object to be.
+      "Obsidian Futurism", from the Stitch design system, with one deliberate change: the base is
+      true #000000 rather than the system's #101415, because this is an AMOLED panel and black
+      pixels are off pixels — on a daemon that may sit face-up on a desk all night, that is both
+      the look and the power budget.
 
-      The glass tokens are deliberately low-alpha. Depth comes from the animated aurora showing
-      through the panels, not from opaque greys stacked on each other.
+      Cards sit just above the void so they read as objects in it rather than as a lighter page.
     -->
 
-    <!-- Base surfaces -->
-    <color name="ghost_void">#FF05070A</color>
-    <color name="ghost_deep">#FF080C12</color>
+    <!-- Base -->
+    <color name="obsidian">#FF000000</color>
+    <color name="surface">#FF0B0F10</color>
+    <color name="surface_container">#FF14181A</color>
+    <color name="surface_high">#FF1D2022</color>
 
-    <!-- Glass: translucent fills + hairline strokes, layered over the aurora -->
-    <color name="glass_fill">#14FFFFFF</color>
-    <color name="glass_fill_strong">#1FFFFFFF</color>
-    <color name="glass_stroke">#24FFFFFF</color>
-    <color name="glass_stroke_soft">#14FFFFFF</color>
+    <!-- Glass: 3% fill, 10% border — straight from the design system -->
+    <color name="glass_fill">#08FFFFFF</color>
+    <color name="glass_fill_hover">#14FFFFFF</color>
+    <color name="glass_border">#1AFFFFFF</color>
+    <color name="divider">#0DFFFFFF</color>
 
-    <!-- Accents. Cyan is GHOST's own colour; violet is the second light in the aurora. -->
-    <color name="accent_cyan">#FF5EEAD4</color>
-    <color name="accent_blue">#FF38BDF8</color>
-    <color name="accent_violet">#FFA78BFA</color>
-    <color name="accent_cyan_dim">#3D5EEAD4</color>
-    <color name="accent_cyan_ghost">#1F5EEAD4</color>
+    <!-- Primary: electric cyan -->
+    <color name="cyan">#FF00F0FF</color>
+    <color name="cyan_dim">#FF00DBE9</color>
+    <color name="cyan_deep">#FF006970</color>
+    <color name="cyan_glow">#2600F0FF</color>
+    <color name="cyan_wash">#1400F0FF</color>
 
-    <!-- Aurora blob hues (alpha is applied in the drawing code) -->
-    <color name="aurora_one">#FF0EA5E9</color>
-    <color name="aurora_two">#FF8B5CF6</color>
-    <color name="aurora_three">#FF14B8A6</color>
+    <!-- Secondary: vibrant violet -->
+    <color name="violet">#FFD0BCFF</color>
+    <color name="violet_deep">#FF571BC1</color>
 
     <!-- Type -->
-    <color name="text_primary">#FFEAF2F8</color>
-    <color name="text_secondary">#FF93A7BA</color>
-    <color name="text_tertiary">#FF5C6F80</color>
-    <color name="text_on_accent">#FF04141A</color>
+    <color name="on_surface">#FFE0E3E5</color>
+    <color name="on_surface_variant">#FFB9CACB</color>
+    <color name="on_surface_muted">#FF849495</color>
+    <color name="on_accent">#FF00363A</color>
 
     <!-- State -->
-    <color name="state_live">#FF34D399</color>
-    <color name="state_idle">#FF64748B</color>
-    <color name="state_warn">#FFFBBF24</color>
+    <color name="state_live">#FF00F0FF</color>
+    <color name="state_idle">#FF849495</color>
+    <color name="state_error">#FFFFB4AB</color>
 
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>

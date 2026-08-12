@@ -44,6 +44,7 @@ import com.coxy.ghost.perception.ContextStore
 import com.coxy.ghost.perception.GhostPrompts
 import com.coxy.ghost.perception.MicState
 import com.coxy.ghost.perception.VisionTrigger
+import com.coxy.ghost.perception.hasSignal
 import com.coxy.ghost.personality.PersonalityProfile
 import com.coxy.ghost.personality.PersonalityRepository
 import com.coxy.ghost.ui.CloudDialog
@@ -78,14 +79,24 @@ class MainActivity : AppCompatActivity() {
     private lateinit var messagesRv: RecyclerView
     private lateinit var userInputEt: EditText
     private lateinit var sendFab: android.widget.ImageButton
-    private lateinit var btnPick: MaterialButton
-    private lateinit var btnStart: MaterialButton
-    private lateinit var btnStop: MaterialButton
-    private lateinit var btnCapture: MaterialButton
-    private lateinit var btnPersonality: MaterialButton
-    private lateinit var btnCloud: MaterialButton
-    private lateinit var btnMic: MaterialButton
+    private lateinit var btnPick: android.widget.Button
+    private lateinit var btnStart: android.widget.Button
+    private lateinit var btnStop: android.widget.Button
+    private lateinit var btnCapture: android.widget.Button
+    private lateinit var btnPersonality: android.widget.Button
+    private lateinit var btnCloud: android.widget.Button
+    private lateinit var btnMic: android.widget.Button
     private lateinit var statusDot: View
+
+    // Three screens behind the bottom nav.
+    private lateinit var screenChat: View
+    private lateinit var screenLive: View
+    private lateinit var screenSystem: View
+    private lateinit var sensorChips: LinearLayout
+    private lateinit var orb: com.coxy.ghost.ui.OrbView
+    private lateinit var liveState: TextView
+    private lateinit var liveHeard: TextView
+    private lateinit var liveReply: TextView
     private var pulse: android.animation.ValueAnimator? = null
 
     private val engine: InferenceEngine by lazy { AiChat.getInferenceEngine(applicationContext) }
@@ -161,6 +172,20 @@ class MainActivity : AppCompatActivity() {
         btnCloud = findViewById(R.id.btn_cloud)
         btnMic = findViewById(R.id.btn_mic)
         statusDot = findViewById(R.id.status_dot)
+        screenChat = findViewById(R.id.screen_chat)
+        screenLive = findViewById(R.id.screen_live)
+        screenSystem = findViewById(R.id.screen_system)
+        sensorChips = findViewById(R.id.sensor_chips)
+        orb = findViewById(R.id.orb)
+        liveState = findViewById(R.id.live_state)
+        liveHeard = findViewById(R.id.live_heard)
+        liveReply = findViewById(R.id.live_reply)
+        findViewById<View>(R.id.nav_chat).setOnClickListener { showTab(Tab.CHAT) }
+        findViewById<View>(R.id.nav_live).setOnClickListener { showTab(Tab.LIVE) }
+        findViewById<View>(R.id.nav_system).setOnClickListener { showTab(Tab.SYSTEM) }
+        findViewById<View>(R.id.live_exit).setOnClickListener { showTab(Tab.CHAT) }
+        findViewById<View>(R.id.live_mute).setOnClickListener { toggleMic() }
+        showTab(Tab.CHAT)
         // The typed path rewrites the last bubble on every token; the default change animation
         // would cross-fade it on each one, which reads as flicker while GHOST is talking.
         (messagesRv.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)
@@ -202,7 +227,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             ContextStore.state.collect { cs ->
                 withContext(Dispatchers.Main) {
-                    perceptionTv.text = cs.toStatusLine().removePrefix("Perception: ")
+                    renderPerception(cs)
                     // Mic button tracks the actual listener state (OFF means disabled by user).
                     updateMicButton(cs.micState != MicState.OFF)
                 }
@@ -314,6 +339,98 @@ class MainActivity : AppCompatActivity() {
         btnCapture.isEnabled = GhostService.isRunning && VisionTrigger.hasCameraPermission(this)
         // Mic toggle: only meaningful while the daemon is up (it owns the listener).
         btnMic.isEnabled = GhostService.isRunning
+    }
+
+    private enum class Tab { CHAT, LIVE, SYSTEM }
+
+    private var currentTab = Tab.CHAT
+
+    /**
+     * Screens are swapped by visibility. The orb's animator is tied to its own visibility, so
+     * leaving Live mode stops it drawing without any extra bookkeeping here.
+     */
+    private fun showTab(tab: Tab) {
+        currentTab = tab
+        screenChat.visibility = if (tab == Tab.CHAT) View.VISIBLE else View.GONE
+        screenLive.visibility = if (tab == Tab.LIVE) View.VISIBLE else View.GONE
+        screenSystem.visibility = if (tab == Tab.SYSTEM) View.VISIBLE else View.GONE
+
+        val on = ContextCompat.getColor(this, R.color.cyan)
+        val off = ContextCompat.getColor(this, R.color.on_surface_muted)
+        fun paint(iconId: Int, labelId: Int, navId: Int, active: Boolean) {
+            findViewById<android.widget.ImageView>(iconId).imageTintList =
+                android.content.res.ColorStateList.valueOf(if (active) on else off)
+            findViewById<TextView>(labelId).setTextColor(if (active) on else off)
+            findViewById<View>(navId).setBackgroundResource(
+                if (active) R.drawable.bg_nav_active else 0
+            )
+        }
+        paint(R.id.nav_chat_icon, R.id.nav_chat_label, R.id.nav_chat, tab == Tab.CHAT)
+        paint(R.id.nav_live_icon, R.id.nav_live_label, R.id.nav_live, tab == Tab.LIVE)
+        paint(R.id.nav_system_icon, R.id.nav_system_label, R.id.nav_system, tab == Tab.SYSTEM)
+    }
+
+    /**
+     * Renders perception into the chat screen's chip row, the compact top-bar label, and the orb.
+     *
+     * Chips follow the same rule as the [CONTEXT] prompt block: a channel that knows nothing shows
+     * nothing, rather than a row of "unknown".
+     */
+    private fun renderPerception(cs: com.coxy.ghost.perception.ContextState) {
+        perceptionTv.text = if (cs.hasSignal()) cs.activity.name.lowercase() else getString(R.string.ghost_perception_idle)
+
+        data class Chip(val text: String, val live: Boolean)
+        val chips = buildList {
+            if (cs.activity != com.coxy.ghost.perception.Activity.UNKNOWN) add(Chip("motion: ${cs.activity.name.lowercase()}", false))
+            if (cs.lightBucket != com.coxy.ghost.perception.LightBucket.UNKNOWN) add(Chip("light: ${cs.lightBucket.name.lowercase()}", false))
+            if (cs.inPocket == true) add(Chip("phone: pocket", false))
+            else if (cs.posture != com.coxy.ghost.perception.Posture.UNKNOWN) add(Chip("phone: ${cs.posture.name.lowercase().replace('_', ' ')}", false))
+            if (cs.micState != MicState.UNKNOWN) {
+                add(Chip("listening: ${cs.micState != MicState.OFF}", cs.micState == MicState.VOICE))
+            }
+            if (cs.nearbyCount > 0) add(Chip("nearby: ${cs.nearbyCount}", false))
+            // Which brain is actually answering. Worth a permanent slot: GHOST ran on the local
+            // 1.5B for a long time while the cloud was assumed to be primary, and nothing on
+            // screen said so.
+            val brain = com.coxy.ghost.cloud.CloudRouter.lastBrain
+            if (brain != com.coxy.ghost.cloud.CloudRouter.Companion.Brain.UNKNOWN) {
+                add(Chip("brain: ${brain.label}", brain == com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD))
+            }
+        }
+        sensorChips.removeAllViews()
+        val pad = (10 * resources.displayMetrics.density).toInt()
+        val padV = (6 * resources.displayMetrics.density).toInt()
+        for (c in chips) {
+            sensorChips.addView(TextView(this).apply {
+                text = c.text
+                setTextAppearance(R.style.TextAppearance_Ghost_Label)
+                if (c.live) setTextColor(ContextCompat.getColor(this@MainActivity, R.color.cyan))
+                setBackgroundResource(if (c.live) R.drawable.bg_chip_active else R.drawable.bg_chip)
+                setPadding(pad, padV, pad, padV)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = (8 * resources.displayMetrics.density).toInt() }
+            })
+        }
+
+        // Live mode mirrors the voice channel and drives the orb.
+        cs.voiceCommand?.let { liveHeard.text = it }
+        liveReply.text = cs.voiceResponse ?: ""
+        val state = when {
+            EngineGate.busy -> com.coxy.ghost.ui.OrbView.OrbState.THINKING
+            cs.micState == MicState.VOICE -> com.coxy.ghost.ui.OrbView.OrbState.LISTENING
+            cs.micState == MicState.SILENT -> com.coxy.ghost.ui.OrbView.OrbState.IDLE
+            else -> com.coxy.ghost.ui.OrbView.OrbState.IDLE
+        }
+        orb.setOrbState(state)
+        liveState.setText(
+            when (state) {
+                com.coxy.ghost.ui.OrbView.OrbState.THINKING -> R.string.ghost_live_thinking
+                com.coxy.ghost.ui.OrbView.OrbState.LISTENING -> R.string.ghost_live_listening
+                com.coxy.ghost.ui.OrbView.OrbState.SPEAKING -> R.string.ghost_live_speaking
+                else -> R.string.ghost_live_idle
+            }
+        )
     }
 
     /**

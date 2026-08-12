@@ -47,9 +47,25 @@ class CloudRouter(
         val prefs = settingsProvider()
         // One read: keyProvider hits encrypted storage, and this was calling it twice per query.
         val key = keyProvider()
-        if (!prefs.enabled || key.isNullOrBlank()) {
-            Log.i(TAG, "cloud disabled or no key — routing to local engine")
-            return engine.sendUserPrompt(fullPrompt)
+
+        // These were one log line reading "cloud disabled or no key", which is why GHOST ran on the
+        // 1.5B for a long time without it being obvious that the API key had never been stored.
+        // Each reason is now distinct, and the chosen brain is published for the UI.
+        if (!prefs.enabled) {
+            Log.i(TAG, "cloud switched off in settings — using local engine")
+            return local(fullPrompt, Brain.LOCAL_DISABLED)
+        }
+        if (key.isNullOrBlank()) {
+            Log.w(TAG, "cloud is ON but no API key is stored — using local engine. " +
+                "Store one via the Cloud screen or CloudKeyInjectionTest -e keyFile.")
+            return local(fullPrompt, Brain.LOCAL_NO_KEY)
+        }
+        // Without this, an offline phone waits out a 15s connect timeout per model in the chain
+        // before falling back — up to 30s of silence for a query the local engine could have
+        // started answering immediately. "Offline fallback" has to actually be fast.
+        if (!isOnline()) {
+            Log.i(TAG, "no network — using local engine")
+            return local(fullPrompt, Brain.LOCAL_OFFLINE)
         }
         val filtered = CloudPromptFilter.apply(fullPrompt, prefs.privacyMode)
 
@@ -70,18 +86,35 @@ class CloudRouter(
             }
 
             if (reply.isNotBlank()) {
+                lastBrain = Brain.CLOUD
                 logInteraction(filtered, reply, wasFallback, latency, prefs.privacyMode, prefs.loggingEnabled)
                 // Emit the whole cloud reply as a single token so the existing streaming UI works.
                 flow { emit(reply) }.flowOn(kotlinx.coroutines.Dispatchers.Default)
             } else {
                 Log.w(TAG, "Cloud returned empty reply — falling back to local")
-                engine.sendUserPrompt(fullPrompt)
+                local(fullPrompt, Brain.LOCAL_CLOUD_FAILED)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Cloud routing failed — falling back to local engine", e)
-            engine.sendUserPrompt(fullPrompt)
+            local(fullPrompt, Brain.LOCAL_CLOUD_FAILED)
         }
     }
+
+    private fun local(prompt: String, why: Brain): Flow<String> {
+        lastBrain = why
+        return engine.sendUserPrompt(prompt)
+    }
+
+    /**
+     * A capabilities check, not a reachability check — it says the phone has a validated internet
+     * transport, not that Ollama is up. A cloud call that fails anyway still falls back below.
+     */
+    private fun isOnline(): Boolean = runCatching {
+        val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+        val caps = cm?.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }.getOrDefault(false)
 
     private suspend fun logInteraction(
         prompt: String,
@@ -107,6 +140,25 @@ class CloudRouter(
     }
 
     companion object {
+        /**
+         * Which brain answered the last query, and if it was the local one, why.
+         *
+         * Published so the UI can show it. This being invisible is how GHOST ran on a 1.5B for
+         * a long stretch while the cloud was believed to be primary.
+         */
+        enum class Brain(val label: String) {
+            CLOUD("cloud"),
+            LOCAL_DISABLED("local · cloud off"),
+            LOCAL_NO_KEY("local · no API key"),
+            LOCAL_OFFLINE("local · offline"),
+            LOCAL_CLOUD_FAILED("local · cloud failed"),
+            UNKNOWN("—"),
+        }
+
+        @Volatile
+        @JvmStatic
+        var lastBrain: Brain = Brain.UNKNOWN
+
         private const val TAG = "CloudRouter"
         private const val MAX_LOG_CHARS = 8_000
     }

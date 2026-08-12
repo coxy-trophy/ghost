@@ -1,223 +1,175 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Every view id from the previous layout is preserved (gguf, perception, messages, user_input, fab,
-  btn_*), so MainActivity's wiring is untouched by the redesign. What changed is the arrangement:
-  two rows of eight chunky outlined buttons became one scrolling rail of compact glass controls,
-  and the flat background became the aurora with translucent panes over it.
+  Three screens behind one bottom nav, per the Stitch design. All three are inflated up front and
+  swapped by visibility rather than by Fragments: MainActivity finds its views once in onCreate and
+  the existing wiring keeps working untouched, which is worth more here than lazy inflation of two
+  small layouts.
 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/ghost_void">
+    android:orientation="vertical"
+    android:background="@color/obsidian"
+    android:fitsSystemWindows="true">
 
-    <!-- The moving light. Everything above it is translucent. -->
-    <com.coxy.ghost.ui.AuroraView
-        android:id="@+id/aurora"
+    <!-- Top bar -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="18dp"
+        android:paddingVertical="14dp">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_grid"
+            android:contentDescription="@null"
+            app:tint="@color/on_surface_muted" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="@string/ghost_wordmark"
+            style="@style/TextAppearance.Ghost.Wordmark" />
+
+        <View
+            android:id="@+id/status_dot"
+            android:layout_width="7dp"
+            android:layout_height="7dp"
+            android:layout_marginEnd="7dp"
+            android:background="@drawable/bg_status_dot" />
+
+        <TextView
+            android:id="@+id/perception"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="46dp"
+            android:gravity="end"
+            android:singleLine="true"
+            android:text="@string/ghost_perception_idle"
+            style="@style/TextAppearance.Ghost.Label" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider" />
+
+    <!-- Screens -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <include layout="@layout/content_chat" />
+        <include layout="@layout/content_live" />
+        <include layout="@layout/content_system" />
+    </FrameLayout>
+
+    <!-- Bottom nav -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider" />
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:fitsSystemWindows="true"
-        tools:context=".MainActivity">
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:background="@color/obsidian">
 
-        <!-- Header: identity + live state -->
         <LinearLayout
-            android:layout_width="match_parent"
+            android:id="@+id/nav_chat"
+            android:layout_width="0dp"
+            android:layout_weight="1"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/bg_glass_panel"
-            android:layout_marginHorizontal="14dp"
-            android:layout_marginTop="10dp"
-            android:paddingHorizontal="18dp"
-            android:paddingVertical="14dp">
+            android:gravity="center"
+            android:paddingVertical="8dp"
+            android:background="@drawable/bg_nav_active"
+            android:clickable="true"
+            android:focusable="true">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <View
-                    android:id="@+id/status_dot"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
-                    android:layout_marginEnd="10dp"
-                    android:background="@drawable/bg_status_dot" />
-
-                <!-- Fixed to its own width and single-lined: the perception caption next to it
-                     grows with whatever the sensors say, and would otherwise squeeze the wordmark
-                     until it wrapped to "G H O / S T". -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:singleLine="true"
-                    android:text="@string/ghost_wordmark"
-                    style="@style/TextAppearance.Ghost.Title" />
-
-                <!-- Takes the remaining space and ellipsizes; the sensor line is unbounded. -->
-                <TextView
-                    android:id="@+id/perception"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
-                    android:singleLine="true"
-                    android:ellipsize="end"
-                    android:gravity="end"
-                    android:text="@string/ghost_perception_idle"
-                    style="@style/TextAppearance.Ghost.Caption" />
-            </LinearLayout>
+            <ImageView
+                android:id="@+id/nav_chat_icon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_chat"
+                android:contentDescription="@null"
+                app:tint="@color/cyan" />
 
             <TextView
-                android:id="@+id/gguf"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="@string/ghost_status_idle"
-                style="@style/TextAppearance.Ghost.Status" />
-        </LinearLayout>
-
-        <!-- Control rail: one horizontal row, scrolls instead of wrapping -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:paddingHorizontal="14dp"
-            android:clipToPadding="false"
-            android:scrollbars="none"
-            android:requiresFadingEdge="horizontal"
-            android:fadingEdgeLength="24dp">
-
-            <LinearLayout
+                android:id="@+id/nav_chat_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:layout_marginTop="4dp"
+                android:text="@string/ghost_nav_chat"
+                style="@style/TextAppearance.Ghost.Label"
+                android:textColor="@color/cyan" />
+        </LinearLayout>
 
-                <Button
-                    android:id="@+id/btn_pick"
-                    style="@style/Widget.Ghost.GlassButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ghost_pick_model" />
-
-                <Button
-                    android:id="@+id/btn_start"
-                    style="@style/Widget.Ghost.GlassButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:enabled="false"
-                    android:text="@string/ghost_start" />
-
-                <Button
-                    android:id="@+id/btn_stop"
-                    style="@style/Widget.Ghost.GlassButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:enabled="false"
-                    android:text="@string/ghost_stop" />
-
-                <Button
-                    android:id="@+id/btn_mic"
-                    style="@style/Widget.Ghost.GlassButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:enabled="false"
-                    android:text="@string/ghost_mic_on" />
-
-                <Button
-                    android:id="@+id/btn_capture"
-                    style="@style/Widget.Ghost.GlassButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:enabled="false"
-                    android:text="@string/ghost_capture" />
-
-                <Button
-                    android:id="@+id/btn_personality"
-                    style="@style/Widget.Ghost.GlassButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:text="@string/ghost_personality" />
-
-                <Button
-                    android:id="@+id/btn_cloud"
-                    style="@style/Widget.Ghost.GlassButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_marginEnd="14dp"
-                    android:text="@string/ghost_cloud" />
-            </LinearLayout>
-        </HorizontalScrollView>
-
-        <!-- Conversation -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/messages"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:layout_marginTop="6dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:clipToPadding="false"
-            android:scrollbars="none"
-            android:overScrollMode="never"
-            tools:listitem="@layout/item_message_assistant" />
-
-        <!-- Composer -->
         <LinearLayout
-            android:layout_width="match_parent"
+            android:id="@+id/nav_live"
+            android:layout_width="0dp"
+            android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_glass_input"
-            android:layout_marginHorizontal="14dp"
-            android:layout_marginBottom="12dp"
-            android:paddingStart="20dp"
-            android:paddingEnd="6dp"
-            android:paddingVertical="6dp">
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:focusable="true">
 
-            <EditText
-                android:id="@+id/user_input"
-                android:layout_width="0dp"
-                android:layout_weight="1"
+            <ImageView
+                android:id="@+id/nav_live_icon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_live"
+                android:contentDescription="@null"
+                app:tint="@color/on_surface_muted" />
+
+            <TextView
+                android:id="@+id/nav_live_label"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="@null"
-                android:enabled="false"
-                android:maxLines="4"
-                android:paddingVertical="10dp"
-                android:textSize="15sp"
-                android:textColor="@color/text_primary"
-                android:textColorHint="@color/text_tertiary"
-                android:inputType="textCapSentences|textMultiLine"
-                android:hint="@string/ghost_input_hint" />
+                android:layout_marginTop="4dp"
+                android:text="@string/ghost_nav_live"
+                style="@style/TextAppearance.Ghost.Label" />
+        </LinearLayout>
 
-            <!-- A plain ImageButton, not a FAB. FloatingActionButton paints its own circular
-                 background from backgroundTint and ignores android:background, which rendered the
-                 send button as a black disc instead of the cyan gradient. -->
-            <ImageButton
-                android:id="@+id/fab"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginStart="6dp"
-                android:enabled="false"
-                android:background="@drawable/bg_send_button"
-                android:scaleType="centerInside"
-                android:padding="12dp"
-                android:contentDescription="@string/ghost_send"
-                app:tint="@color/text_on_accent"
-                android:src="@drawable/outline_send_24" />
+        <LinearLayout
+            android:id="@+id/nav_system"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:id="@+id/nav_system_icon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_system"
+                android:contentDescription="@null"
+                app:tint="@color/on_surface_muted" />
+
+            <TextView
+                android:id="@+id/nav_system_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/ghost_nav_system"
+                style="@style/TextAppearance.Ghost.Label" />
         </LinearLayout>
     </LinearLayout>
-</FrameLayout>
+</LinearLayout>

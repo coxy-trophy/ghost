@@ -9,7 +9,7 @@
     <string name="ghost_notif_stop">Stop GHOST</string>
 
     <!-- Chrome -->
-    <string name="ghost_wordmark">G H O S T</string>
+    <string name="ghost_wordmark">GHOST</string>
     <string name="ghost_perception_idle">idle</string>
     <string name="ghost_status_idle">Offline. Pick a model to begin.</string>
     <string name="ghost_input_hint">Say something to GHOST…</string>
@@ -47,4 +47,30 @@
     <!-- Phase 5 kill switch -->
     <string name="ghost_kill_tile">Kill GHOST</string>
     <string name="ghost_accessibility_desc">GHOST hardware kill switch — hold both volume keys to stop GHOST. Does not read screen content.</string>
+
+    <!-- Bottom navigation -->
+    <string name="ghost_nav_chat">Chat</string>
+    <string name="ghost_nav_live">Live</string>
+    <string name="ghost_nav_system">System</string>
+
+    <!-- Live mode -->
+    <string name="ghost_live_idle">DORMANT</string>
+    <string name="ghost_live_listening">LISTENING…</string>
+    <string name="ghost_live_thinking">THINKING…</string>
+    <string name="ghost_live_speaking">SPEAKING…</string>
+    <string name="ghost_live_mute">Mute microphone</string>
+    <string name="ghost_live_exit">Leave live mode</string>
+
+    <!-- System screen -->
+    <string name="ghost_system_title">Configuration</string>
+    <string name="ghost_system_subtitle">Manage core operational parameters for this instance.</string>
+    <string name="ghost_sec_runtime">System controls</string>
+    <string name="ghost_sec_behaviour">Behavioural matrix</string>
+    <string name="ghost_sec_behaviour_desc">Trait sliders, drift budget, snapshots and rollback.</string>
+    <string name="ghost_sec_cloud">External compute</string>
+    <string name="ghost_sec_cloud_desc">Off-device processing for complex queries, with a privacy filter.</string>
+    <string name="ghost_sec_core">Local inference core</string>
+    <string name="ghost_active_weights">ACTIVE_WEIGHTS_FILE</string>
+    <string name="ghost_speaker_ghost">GHOST</string>
+    <string name="ghost_speaker_user">YOU</string>
 </resources>

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live mode: the sphere is the screen. Text is deliberately secondary to it. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/screen_live"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:visibility="gone">
+
+    <com.coxy.ghost.ui.OrbView
+        android:id="@+id/orb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:layout_marginTop="28dp"
+        android:paddingHorizontal="32dp">
+
+        <TextView
+            android:id="@+id/live_state"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ghost_live_idle"
+            style="@style/TextAppearance.Ghost.Label"
+            android:textColor="@color/cyan"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/live_heard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:textColor="@color/on_surface_muted"
+            style="@style/TextAppearance.Ghost.Mono" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/live_reply"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="110dp"
+        android:paddingHorizontal="28dp"
+        android:gravity="center"
+        android:maxLines="4"
+        android:ellipsize="end"
+        style="@style/TextAppearance.Ghost.Body"
+        android:textColor="@color/on_surface" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="28dp"
+        android:orientation="horizontal"
+        android:background="@drawable/bg_live_controls"
+        android:divider="@null">
+
+        <ImageButton
+            android:id="@+id/live_mute"
+            android:layout_width="72dp"
+            android:layout_height="52dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/ghost_live_mute"
+            android:src="@drawable/ic_mic_off"
+            app:tint="@color/cyan"
+            xmlns:app="http://schemas.android.com/apk/res-auto" />
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center_vertical"
+            android:background="@color/cyan_deep" />
+
+        <ImageButton
+            android:id="@+id/live_exit"
+            android:layout_width="72dp"
+            android:layout_height="52dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/ghost_live_exit"
+            android:src="@drawable/ic_close"
+            app:tint="@color/on_surface"
+            xmlns:app="http://schemas.android.com/apk/res-auto" />
+    </LinearLayout>
+</FrameLayout>

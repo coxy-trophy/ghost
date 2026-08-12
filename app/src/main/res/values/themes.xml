@@ -1,72 +1,98 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!--
-      Locked to dark rather than DayNight. GHOST has one look, and it is the one that belongs on a
-      phone lying face-up in a dark room.
-    -->
     <style name="Base.Theme.AiChatSample" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="colorPrimary">@color/accent_cyan</item>
-        <item name="colorOnPrimary">@color/text_on_accent</item>
-        <item name="colorSecondary">@color/accent_violet</item>
-        <item name="colorSurface">@color/ghost_deep</item>
-        <item name="colorOnSurface">@color/text_primary</item>
-        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
-        <item name="android:colorBackground">@color/ghost_void</item>
-
-        <!-- The aurora is the background; the window must not paint over it. -->
-        <item name="android:windowBackground">@color/ghost_void</item>
+        <item name="colorPrimary">@color/cyan</item>
+        <item name="colorOnPrimary">@color/on_accent</item>
+        <item name="colorSecondary">@color/violet</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
+        <item name="android:colorBackground">@color/obsidian</item>
+        <item name="android:windowBackground">@color/obsidian</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/obsidian</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
-
-        <item name="android:textColorPrimary">@color/text_primary</item>
-        <item name="android:textColorSecondary">@color/text_secondary</item>
-        <item name="android:textColorHint">@color/text_tertiary</item>
+        <item name="android:textColorPrimary">@color/on_surface</item>
+        <item name="android:textColorSecondary">@color/on_surface_variant</item>
+        <item name="android:textColorHint">@color/on_surface_muted</item>
     </style>
 
     <style name="Theme.AiChatSample" parent="Base.Theme.AiChatSample" />
 
-    <!-- Compact glass control. The eight chunky outlined buttons became these. -->
-    <style name="Widget.Ghost.GlassButton" parent="Widget.AppCompat.Button.Borderless">
-        <item name="android:background">@drawable/bg_glass_button</item>
-        <item name="android:textColor">@color/text_secondary</item>
-        <item name="android:textSize">12sp</item>
-        <item name="android:letterSpacing">0.03</item>
-        <item name="android:textAllCaps">false</item>
-        <item name="android:paddingHorizontal">8dp</item>
-        <item name="android:minWidth">0dp</item>
-        <item name="android:minHeight">42dp</item>
-        <item name="android:stateListAnimator">@null</item>
-        <item name="android:gravity">center</item>
-    </style>
-
-    <style name="TextAppearance.Ghost.Title" parent="TextAppearance.Material3.TitleMedium">
-        <item name="android:textColor">@color/text_primary</item>
-        <item name="android:letterSpacing">0.22</item>
+    <!--
+      Type roles from the design system. Space Grotesk / Inter / JetBrains Mono are not bundled —
+      shipping three font families would add megabytes to an APK that is already 100 MB — so the
+      roles are approximated with the platform families. What carries the aesthetic is the
+      monospace-and-uppercase treatment of data labels against sans-serif body text, and that
+      survives the substitution.
+    -->
+    <style name="TextAppearance.Ghost.Wordmark" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">@color/cyan</item>
         <item name="android:textStyle">bold</item>
-        <item name="android:textSize">13sp</item>
+        <item name="android:letterSpacing">0.16</item>
+        <item name="android:textSize">17sp</item>
     </style>
 
-    <style name="TextAppearance.Ghost.Status" parent="TextAppearance.Material3.BodySmall">
-        <item name="android:textColor">@color/text_secondary</item>
+    <!-- label-caps: monospace, uppercase, wide tracking. Used for every data label. -->
+    <style name="TextAppearance.Ghost.Label" parent="TextAppearance.Material3.LabelSmall">
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textColor">@color/on_surface_muted</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:letterSpacing">0.1</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <style name="TextAppearance.Ghost.Mono" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textColor">@color/on_surface_variant</item>
         <item name="android:textSize">12sp</item>
     </style>
 
-    <style name="TextAppearance.Ghost.Caption" parent="TextAppearance.Material3.LabelSmall">
-        <item name="android:textColor">@color/text_tertiary</item>
-        <item name="android:textSize">11sp</item>
-        <item name="android:letterSpacing">0.03</item>
+    <style name="TextAppearance.Ghost.Body" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textColor">@color/on_surface</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:lineSpacingExtra">4dp</item>
     </style>
 
-    <!-- Dialogs inherit GHOST's palette instead of the stock grey Material sheet. -->
+    <style name="TextAppearance.Ghost.SectionTitle" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:textColor">@color/on_surface</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <!-- Ghost button: 1dp cyan border, no fill. The design system's secondary action. -->
+    <style name="Widget.Ghost.Outline" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:background">@drawable/bg_button_ghost</item>
+        <item name="android:textColor">@color/cyan</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:letterSpacing">0.08</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:minHeight">44dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingHorizontal">16dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- Primary button: cyan-to-violet gradient, black text. -->
+    <style name="Widget.Ghost.Primary" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:background">@drawable/bg_button_primary</item>
+        <item name="android:textColor">@color/on_accent</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:letterSpacing">0.08</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:minHeight">46dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
     <style name="Theme.Ghost.Dialog" parent="Theme.Material3.Dark.Dialog.Alert">
-        <item name="colorPrimary">@color/accent_cyan</item>
-        <item name="colorSurface">@color/ghost_deep</item>
-        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorPrimary">@color/cyan</item>
+        <item name="colorSurface">@color/surface_container</item>
+        <item name="colorOnSurface">@color/on_surface</item>
         <item name="android:windowBackground">@drawable/bg_dialog</item>
-        <item name="android:textColorPrimary">@color/text_primary</item>
-        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColorPrimary">@color/on_surface</item>
+        <item name="android:textColorSecondary">@color/on_surface_variant</item>
     </style>
 </resources>

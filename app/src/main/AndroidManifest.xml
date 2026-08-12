@@ -21,6 +21,9 @@
 
     <!-- Phase 8 cloud brain: reach the Ollama Cloud API. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Read-only: lets CloudRouter fall back to the local engine instantly when offline
+         instead of waiting out a 15s connect timeout per model in the chain. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Phase 4.5 perception. BLUETOOTH_SCAN carries neverForLocation: GHOST counts nearby BLE
          devices and names only ones already paired to this phone, and never derives position from
