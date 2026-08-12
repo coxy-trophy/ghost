@@ -8,18 +8,28 @@ import com.coxy.ghost.GhostPrefs
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertTrue
+import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
  * Phase 8 live smoke test: sends a real prompt through Ollama Cloud and prints the reply.
  * Requires a stored API key (injected via [CloudKeyInjectionTest] or entered in the UI).
+ *
+ * **This is an operational script, not a unit test** — it spends real money on the account behind
+ * the stored key. It therefore opts out by default and only runs when asked, the same way
+ * [CloudKeyInjectionTest] gates on `-e keyFile`. Without that, a plain `connectedAndroidTest` run
+ * billed the account every time.
  */
 @RunWith(AndroidJUnit4::class)
 class CloudLiveQueryTest {
 
     @Test
     fun live_cloud_query_returns_nonempty_reply() = runBlocking {
+        Assume.assumeTrue(
+            "Skipped: calls the real Ollama Cloud API and bills the account. Pass -e cloudLive true to run it.",
+            InstrumentationRegistry.getArguments().getString("cloudLive")?.toBoolean() == true
+        )
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val key = CloudKeyStorage.getKey(ctx)
         require(!key.isNullOrBlank()) { "Ollama API key is missing — store it via the UI first or run CloudKeyInjectionTest." }

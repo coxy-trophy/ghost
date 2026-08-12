@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.net.HttpURLConnection
@@ -18,12 +19,20 @@ import javax.net.ssl.HttpsURLConnection
  * Tries both `https://ollama.com/api/tags` and `https://api.ollama.com/api/tags` with the stored
  * bearer token, and also probes a small set of common public model names against `/api/chat`.
  * Output is logged with tag [CloudModelDiscoveryTest].
+ *
+ * **This is a diagnostic script, not a unit test** — it sends a dozen probe requests against the
+ * production API on the account behind the stored key. It opts out by default and only runs when
+ * asked, the same way [CloudKeyInjectionTest] gates on `-e keyFile`.
  */
 @RunWith(AndroidJUnit4::class)
 class CloudModelDiscoveryTest {
 
     @Test
     fun discover_available_cloud_models() {
+        Assume.assumeTrue(
+            "Skipped: probes the production Ollama API with the stored key. Pass -e cloudLive true to run it.",
+            InstrumentationRegistry.getArguments().getString("cloudLive")?.toBoolean() == true
+        )
         runBlocking {
             val ctx = InstrumentationRegistry.getInstrumentation().targetContext
             val key = CloudKeyStorage.getKey(ctx)

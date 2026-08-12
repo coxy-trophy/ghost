@@ -47,6 +47,13 @@ android {
     }
 }
 
+// Room writes the schema of each version here. Committed, so a future migration can be diffed and
+// tested against the version it migrates from. Note the v1 and v2 schemas do not exist and cannot
+// be reconstructed — export was off when they shipped — so only v3 onward is covered.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(libs.bundles.androidx)
     implementation(libs.material)

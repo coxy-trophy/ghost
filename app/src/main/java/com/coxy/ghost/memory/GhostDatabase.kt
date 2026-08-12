@@ -22,7 +22,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         com.coxy.ghost.cloud.CloudInteraction::class
     ],
     version = 3,
-    exportSchema = false
+    // Exported to app/schemas so future migrations can be diffed and tested against the version
+    // they migrate from. v1 and v2 predate this and cannot be reconstructed.
+    exportSchema = true
 )
 abstract class GhostDatabase : RoomDatabase() {
     abstract fun dao(): MemoryDao
@@ -40,7 +42,7 @@ abstract class GhostDatabase : RoomDatabase() {
          * Phase 8 migration from v2 → v3: add the cloud_interaction log table. The SQL matches the
          * Room-generated schema exactly (no defaults, no extra indexes) so migration validation passes.
          */
-        private val MIGRATION_2_3 = object : Migration(2, 3) {
+        internal val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     """
@@ -59,57 +61,42 @@ abstract class GhostDatabase : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_1_2 = object : Migration(1, 2) {
+        /**
+         * The SQL below is Room's own exported DDL, copied verbatim from
+         * `app/schemas/.../3.json`, and must stay that way.
+         *
+         * It originally carried `DEFAULT` clauses on every column and created an extra index on
+         * `personality_snapshot`. The entities declare neither, so Room's post-migration validation
+         * compared what it expected against what it found and threw
+         * `IllegalStateException: Migration didn't properly handle: personality_snapshot` — every
+         * device holding a v1 database would have crashed on open. It went unnoticed because fresh
+         * installs build v3 directly and never run this path. Caught 2026-08-12 by
+         * `GhostDatabaseMigrationTest`, the first test this migration ever had.
+         *
+         * `MIGRATION_2_3` already noted this rule for itself; it was never applied back here.
+         */
+        internal val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS personality_profile (
-                        id INTEGER PRIMARY KEY NOT NULL,
-                        name TEXT NOT NULL DEFAULT 'default',
-                        humor INTEGER NOT NULL DEFAULT 50,
-                        sarcasm INTEGER NOT NULL DEFAULT 50,
-                        bluntness INTEGER NOT NULL DEFAULT 50,
-                        warmth INTEGER NOT NULL DEFAULT 50,
-                        formality INTEGER NOT NULL DEFAULT 50,
-                        verbosity INTEGER NOT NULL DEFAULT 50,
-                        curiosity INTEGER NOT NULL DEFAULT 50,
-                        initiative INTEGER NOT NULL DEFAULT 50,
-                        humorMin INTEGER NOT NULL DEFAULT 0,
-                        humorMax INTEGER NOT NULL DEFAULT 100,
-                        sarcasmMin INTEGER NOT NULL DEFAULT 0,
-                        sarcasmMax INTEGER NOT NULL DEFAULT 100,
-                        bluntnessMin INTEGER NOT NULL DEFAULT 0,
-                        bluntnessMax INTEGER NOT NULL DEFAULT 100,
-                        warmthMin INTEGER NOT NULL DEFAULT 0,
-                        warmthMax INTEGER NOT NULL DEFAULT 100,
-                        formalityMin INTEGER NOT NULL DEFAULT 0,
-                        formalityMax INTEGER NOT NULL DEFAULT 100,
-                        verbosityMin INTEGER NOT NULL DEFAULT 0,
-                        verbosityMax INTEGER NOT NULL DEFAULT 100,
-                        curiosityMin INTEGER NOT NULL DEFAULT 0,
-                        curiosityMax INTEGER NOT NULL DEFAULT 100,
-                        initiativeMin INTEGER NOT NULL DEFAULT 0,
-                        initiativeMax INTEGER NOT NULL DEFAULT 100,
-                        updatedMs INTEGER NOT NULL DEFAULT 0
-                    )
-                    """.trimIndent()
+                    "CREATE TABLE IF NOT EXISTS `personality_profile` (" +
+                        "`id` INTEGER NOT NULL, `name` TEXT NOT NULL, `humor` INTEGER NOT NULL, " +
+                        "`sarcasm` INTEGER NOT NULL, `bluntness` INTEGER NOT NULL, `warmth` INTEGER NOT NULL, " +
+                        "`formality` INTEGER NOT NULL, `verbosity` INTEGER NOT NULL, `curiosity` INTEGER NOT NULL, " +
+                        "`initiative` INTEGER NOT NULL, `humorMin` INTEGER NOT NULL, `humorMax` INTEGER NOT NULL, " +
+                        "`sarcasmMin` INTEGER NOT NULL, `sarcasmMax` INTEGER NOT NULL, " +
+                        "`bluntnessMin` INTEGER NOT NULL, `bluntnessMax` INTEGER NOT NULL, " +
+                        "`warmthMin` INTEGER NOT NULL, `warmthMax` INTEGER NOT NULL, " +
+                        "`formalityMin` INTEGER NOT NULL, `formalityMax` INTEGER NOT NULL, " +
+                        "`verbosityMin` INTEGER NOT NULL, `verbosityMax` INTEGER NOT NULL, " +
+                        "`curiosityMin` INTEGER NOT NULL, `curiosityMax` INTEGER NOT NULL, " +
+                        "`initiativeMin` INTEGER NOT NULL, `initiativeMax` INTEGER NOT NULL, " +
+                        "`updatedMs` INTEGER NOT NULL, PRIMARY KEY(`id`))"
                 )
                 db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS personality_snapshot (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        profileId INTEGER NOT NULL DEFAULT 1,
-                        reason TEXT NOT NULL,
-                        serializedProfile TEXT NOT NULL,
-                        createdMs INTEGER NOT NULL DEFAULT 0
-                    )
-                    """.trimIndent()
-                )
-                db.execSQL(
-                    """
-                    CREATE INDEX IF NOT EXISTS index_personality_snapshot_profile_created
-                    ON personality_snapshot(profileId, createdMs DESC)
-                    """.trimIndent()
+                    "CREATE TABLE IF NOT EXISTS `personality_snapshot` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `profileId` INTEGER NOT NULL, " +
+                        "`reason` TEXT NOT NULL, `serializedProfile` TEXT NOT NULL, " +
+                        "`createdMs` INTEGER NOT NULL)"
                 )
             }
         }
