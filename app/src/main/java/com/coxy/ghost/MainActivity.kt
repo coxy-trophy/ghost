@@ -29,9 +29,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.arm.aichat.AiChat
 import com.arm.aichat.InferenceEngine
 import com.arm.aichat.isModelLoaded
-import com.coxy.ghost.action.ActionCatalog
 import com.coxy.ghost.action.ActionExecutor
-import com.coxy.ghost.action.ActionParser
+import com.coxy.ghost.action.ActionRunner
 import com.coxy.ghost.cloud.CloudKeyStorage
 import com.coxy.ghost.cloud.CloudRouter
 import com.coxy.ghost.memory.Embedder
@@ -43,8 +42,11 @@ import com.coxy.ghost.perception.CameraCapture
 import com.coxy.ghost.perception.ContextStore
 import com.coxy.ghost.perception.GhostPrompts
 import com.coxy.ghost.perception.MicState
+import com.coxy.ghost.perception.VisionTrigger
 import com.coxy.ghost.personality.PersonalityProfile
 import com.coxy.ghost.personality.PersonalityRepository
+import com.coxy.ghost.ui.CloudDialog
+import com.coxy.ghost.ui.PersonalityDialog
 import com.coxy.ghost.personality.PersonalitySnapshot
 import com.coxy.ghost.personality.PersonalityTranslator
 import com.coxy.ghost.perception.toStatusLine
@@ -286,7 +288,7 @@ class MainActivity : AppCompatActivity() {
         btnStart.isEnabled = (modelPath != null) && !GhostService.isRunning
         btnStop.isEnabled = GhostService.isRunning
         // On-demand camera capture (D2): available while the daemon is up + CAMERA is granted.
-        btnCapture.isEnabled = GhostService.isRunning && hasCamera()
+        btnCapture.isEnabled = GhostService.isRunning && VisionTrigger.hasCameraPermission(this)
         // Mic toggle: only meaningful while the daemon is up (it owns the listener).
         btnMic.isEnabled = GhostService.isRunning
     }
@@ -437,11 +439,11 @@ class MainActivity : AppCompatActivity() {
                     // On-demand camera (D2): if the query seems to need vision, grab a fresh frame
                     // first so its metadata rides the [CONTEXT] block. The capture is async on the
                     // camera thread; wait briefly for it to land in ContextStore.
-                    if (GhostService.isRunning && hasCamera() &&
-                        VISION_KEYWORDS.any { userMsg.contains(it, true) }
+                    if (GhostService.isRunning && VisionTrigger.hasCameraPermission(this@MainActivity) &&
+                        VisionTrigger.wantsVision(userMsg)
                     ) {
                         sendCaptureFrame(CameraCapture.FACING_BACK)
-                        delay(VISION_CAPTURE_WAIT_MS)
+                        delay(VisionTrigger.CAPTURE_WAIT_MS)
                     }
                     val cs = ContextStore.state.value
                     // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block.
@@ -465,7 +467,7 @@ class MainActivity : AppCompatActivity() {
                     // After the reply completes (engine idle): parse any actions, execute them, strip
                     // the deprecated "Ghost:" prefix, then persist the final reply for future recall.
                     val rawReply = lastAssistantMsg.toString()
-                    val reply = stripGhostPrefix(runActions(rawReply))
+                    val reply = stripGhostPrefix(ActionRunner.run(actionExecutor, rawReply))
                     finalReply = reply
 
                     // Update the assistant bubble if action results changed the text.
@@ -542,28 +544,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Phase 7: parse actions from the model reply, execute immediate ones, confirm Tier 3. */
-    private suspend fun runActions(reply: String): String {
-        val parsed = ActionParser.extract(reply)
-        if (parsed.actions.isEmpty() && parsed.errors.isEmpty()) return reply
-
-        val batch = actionExecutor.runImmediate(parsed.actions)
-        if (batch.pending.isNotEmpty()) {
-            actionExecutor.requestConfirmation(batch.pending)
-        }
-
-        val resultLines = buildList {
-            addAll(parsed.errors.map { "[ACTION fail parser: $it]" })
-            addAll(batch.results.map { it.toReplyLine() })
-            if (batch.pending.isNotEmpty()) {
-                add("[ACTION pending ${batch.pending.joinToString { ActionCatalog.describe(it.id) }}: requires confirmation]")
-            }
-        }
-
-        val stripped = parsed.cleanedReply.trim()
-        return if (resultLines.isEmpty()) stripped
-               else stripped + "\n" + resultLines.joinToString("\n")
-    }
 
     private fun ensureModelsDirectory() =
         File(filesDir, DIRECTORY_MODELS).also {
@@ -586,10 +566,6 @@ class MainActivity : AppCompatActivity() {
         runCatching { startService(svc) }
     }
 
-    private fun hasCamera(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-
     /** Whether the hardware volume-key kill-switch accessibility service is enabled. */
     private fun isKillAccessibilityEnabled(): Boolean {
         val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
@@ -603,279 +579,10 @@ class MainActivity : AppCompatActivity() {
      * PersonalityTranslator, snapshot + rollback versioning, and a broadcast that tells
      * GhostService to reload the model so the new prompt block takes effect.
      */
-    private fun showPersonalityDialog() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val profileRef = personalityRepo.activeProfile()
-            withContext(Dispatchers.Main) { buildPersonalityDialog(profileRef) }
-        }
-    }
+    private fun showPersonalityDialog() =
+        PersonalityDialog(this, lifecycleScope, personalityRepo, ::startServiceWithAction).show()
 
-    private fun buildPersonalityDialog(profileRef: PersonalityProfile) {
-        val container = LayoutInflater.from(this)
-            .inflate(R.layout.dialog_personality, null) as ScrollView
-        val sliderContainer = container.findViewById<LinearLayout>(R.id.slider_container)
-        val btnSnapshot = container.findViewById<MaterialButton>(R.id.btn_snapshot)
-        val btnRollback = container.findViewById<MaterialButton>(R.id.btn_rollback)
-
-        // Trait definition: display label + getter/setter against the mutable copy we load.
-        data class TraitDef(
-            val label: String,
-            val minBudget: Int,
-            val maxBudget: Int,
-            val get: () -> Int,
-            val set: (Int) -> Unit
-        )
-
-        var mutableProfile = profileRef.copy()
-
-        val traits = listOf(
-            TraitDef("Humor", profileRef.humorMin, profileRef.humorMax, { mutableProfile.humor }, { mutableProfile = mutableProfile.copy(humor = it) }),
-            TraitDef("Sarcasm", profileRef.sarcasmMin, profileRef.sarcasmMax, { mutableProfile.sarcasm }, { mutableProfile = mutableProfile.copy(sarcasm = it) }),
-            TraitDef("Bluntness", profileRef.bluntnessMin, profileRef.bluntnessMax, { mutableProfile.bluntness }, { mutableProfile = mutableProfile.copy(bluntness = it) }),
-            TraitDef("Warmth", profileRef.warmthMin, profileRef.warmthMax, { mutableProfile.warmth }, { mutableProfile = mutableProfile.copy(warmth = it) }),
-            TraitDef("Formality", profileRef.formalityMin, profileRef.formalityMax, { mutableProfile.formality }, { mutableProfile = mutableProfile.copy(formality = it) }),
-            TraitDef("Verbosity", profileRef.verbosityMin, profileRef.verbosityMax, { mutableProfile.verbosity }, { mutableProfile = mutableProfile.copy(verbosity = it) }),
-            TraitDef("Curiosity", profileRef.curiosityMin, profileRef.curiosityMax, { mutableProfile.curiosity }, { mutableProfile = mutableProfile.copy(curiosity = it) }),
-            TraitDef("Initiative", profileRef.initiativeMin, profileRef.initiativeMax, { mutableProfile.initiative }, { mutableProfile = mutableProfile.copy(initiative = it) })
-        )
-
-        // Per-trait slider rows: label | SeekBar 0..100 | value label.
-        traits.forEach { def ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 8, 0, 8)
-            }
-            val label = TextView(this).apply {
-                text = def.label
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val seekBar = SeekBar(this).apply {
-                max = 100
-                progress = def.get()
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
-            }
-            val valueLabel = TextView(this).apply {
-                text = def.get().toString()
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
-                textAlignment = TextView.TEXT_ALIGNMENT_TEXT_END
-            }
-            seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (!fromUser) return
-                    val clamped = progress.coerceIn(def.minBudget, def.maxBudget)
-                    def.set(clamped)
-                    if (progress != clamped) seekBar?.progress = clamped
-                    valueLabel.text = clamped.toString()
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-            })
-            row.addView(label)
-            row.addView(seekBar)
-            row.addView(valueLabel)
-            sliderContainer.addView(row, sliderContainer.childCount - 2)
-        }
-
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(getString(R.string.ghost_personality_title))
-            .setView(container)
-            .setPositiveButton(R.string.ghost_personality_save, null)
-            .setNegativeButton(R.string.ghost_personality_reset, null)
-            .setNeutralButton(R.string.ghost_personality_snapshots, null)
-            .create()
-
-        // Helper: refresh all sliders from mutableProfile.
-        fun refreshSliders() {
-            traits.forEachIndexed { idx, def ->
-                val row = sliderContainer.getChildAt(idx) as LinearLayout
-                val seekBar = row.getChildAt(1) as SeekBar
-                val valueLabel = row.getChildAt(2) as TextView
-                seekBar.progress = def.get()
-                valueLabel.text = def.get().toString()
-            }
-        }
-
-        // Helper: pick a snapshot to roll back to and trigger service reload.
-        fun showRollbackPicker(snapshots: List<PersonalitySnapshot>) {
-            val names = snapshots.map { it.reason }
-            if (names.isEmpty()) {
-                Toast.makeText(this, "No snapshots yet", Toast.LENGTH_SHORT).show()
-                return
-            }
-            AlertDialog.Builder(this)
-                .setTitle(R.string.ghost_personality_rollback)
-                .setItems(names.toTypedArray()) { _, which ->
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        val restored = personalityRepo.rollback(snapshots[which])
-                        withContext(Dispatchers.Main) {
-                            mutableProfile = restored
-                            refreshSliders()
-                            Toast.makeText(this@MainActivity, "Rolled back to ${snapshots[which].reason}", Toast.LENGTH_SHORT).show()
-                            startServiceWithAction(GhostService.ACTION_RELOAD_PERSONALITY)
-                        }
-                    }
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-
-        dialog.setOnShowListener {
-            // Save: persist clamped profile, then ask the service to reload.
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    val clamped = PersonalityTranslator.clamp(mutableProfile)
-                    personalityRepo.save(clamped)
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, R.string.ghost_personality_applied, Toast.LENGTH_SHORT).show()
-                        startServiceWithAction(GhostService.ACTION_RELOAD_PERSONALITY)
-                        dialog.dismiss()
-                    }
-                }
-            }
-            // Reset to baseline defaults and persist/reload.
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    val reset = personalityRepo.resetToBaseline()
-                    withContext(Dispatchers.Main) {
-                        mutableProfile = reset
-                        refreshSliders()
-                        Toast.makeText(this@MainActivity, R.string.ghost_personality_baseline, Toast.LENGTH_SHORT).show()
-                        startServiceWithAction(GhostService.ACTION_RELOAD_PERSONALITY)
-                    }
-                }
-            }
-            // Neutral: snapshot/rollback chooser.
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    val snapshots = personalityRepo.recentSnapshots(20)
-                    val names = snapshots.map { it.reason } + "+ New snapshot"
-                    withContext(Dispatchers.Main) {
-                        AlertDialog.Builder(this@MainActivity)
-                            .setTitle(R.string.ghost_personality_snapshots)
-                            .setItems(names.toTypedArray()) { _, which ->
-                                if (which == names.lastIndex) {
-                                    val name = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                                        .format(Date())
-                                    lifecycleScope.launch(Dispatchers.IO) {
-                                        personalityRepo.snapshot(name, mutableProfile)
-                                        withContext(Dispatchers.Main) {
-                                            Toast.makeText(this@MainActivity, "Snapshot saved: $name", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                } else {
-                                    lifecycleScope.launch(Dispatchers.IO) {
-                                        val restored = personalityRepo.rollback(snapshots[which])
-                                        withContext(Dispatchers.Main) {
-                                            mutableProfile = restored
-                                            refreshSliders()
-                                            Toast.makeText(this@MainActivity, "Rolled back to ${snapshots[which].reason}", Toast.LENGTH_SHORT).show()
-                                            startServiceWithAction(GhostService.ACTION_RELOAD_PERSONALITY)
-                                        }
-                                    }
-                                }
-                            }
-                            .setNegativeButton("Cancel", null)
-                            .show()
-                    }
-                }
-            }
-            // Dedicated snapshot button inside the dialog also creates a new snapshot.
-            btnSnapshot.setOnClickListener {
-                val name = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                    .format(Date())
-                lifecycleScope.launch(Dispatchers.IO) {
-                    personalityRepo.snapshot(name, mutableProfile)
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Snapshot saved: $name", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-            btnRollback.setOnClickListener {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    val snapshots = personalityRepo.recentSnapshots(20)
-                    withContext(Dispatchers.Main) { showRollbackPicker(snapshots) }
-                }
-            }
-        }
-        dialog.show()
-    }
-
-    /**
-     * Phase 8: configure the Ollama Cloud brain — API key, on/off toggle, privacy filter, and
-     * distillation logging toggle.
-     */
-    private fun showCloudDialog() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val settings = GhostPrefs.cloudSettings(applicationContext)
-            val currentKey = CloudKeyStorage.getKey(applicationContext) ?: ""
-            withContext(Dispatchers.Main) { buildCloudDialog(currentKey, settings) }
-        }
-    }
-
-    private fun buildCloudDialog(currentKey: String, settings: com.coxy.ghost.cloud.CloudSettings) {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 16, 32, 16)
-        }
-
-        val keyInput = EditText(this).apply {
-            hint = getString(R.string.ghost_cloud_key_hint)
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or
-                    android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(currentKey)
-        }
-        container.addView(keyInput)
-
-        val enabledSwitch = android.widget.Switch(this).apply {
-            text = getString(R.string.ghost_cloud_enabled)
-            isChecked = settings.enabled
-        }
-        container.addView(enabledSwitch)
-
-        val loggingSwitch = android.widget.Switch(this).apply {
-            text = getString(R.string.ghost_cloud_logging)
-            isChecked = settings.loggingEnabled
-        }
-        container.addView(loggingSwitch)
-
-        val modes = com.coxy.ghost.cloud.CloudPromptFilter.Mode.entries.map { it.name.lowercase() }
-        val modeLabel = TextView(this).apply {
-            text = getString(R.string.ghost_cloud_privacy)
-            setPadding(0, 16, 0, 8)
-        }
-        container.addView(modeLabel)
-        val modeSpinner = android.widget.Spinner(this).apply {
-            adapter = android.widget.ArrayAdapter(
-                this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                modes
-            )
-            setSelection(modes.indexOf(settings.privacyMode.name.lowercase()).coerceAtLeast(0))
-        }
-        container.addView(modeSpinner)
-
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.ghost_cloud_title))
-            .setView(container)
-            .setPositiveButton(R.string.ghost_cloud_save) { _, _ ->
-                val newKey = keyInput.text.toString().trim()
-                val newMode = com.coxy.ghost.cloud.CloudPromptFilter.Mode.entries[modeSpinner.selectedItemPosition]
-                lifecycleScope.launch(Dispatchers.IO) {
-                    CloudKeyStorage.setKey(applicationContext, newKey)
-                    GhostPrefs.setCloudEnabled(applicationContext, enabledSwitch.isChecked)
-                    GhostPrefs.setCloudLoggingEnabled(applicationContext, loggingSwitch.isChecked)
-                    GhostPrefs.setCloudPrivacyMode(applicationContext, newMode)
-                    withContext(Dispatchers.Main) {
-                        val status = if (enabledSwitch.isChecked && newKey.isNotBlank()) "enabled"
-                                     else if (enabledSwitch.isChecked) "enabled (key missing)"
-                                     else "disabled"
-                        Toast.makeText(this@MainActivity, "Cloud brain $status", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
+    private fun showCloudDialog() = CloudDialog(this, lifecycleScope).show()
 
     override fun onStop() {
         generationJob?.cancel()
@@ -887,11 +594,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private val TAG = MainActivity::class.java.simpleName
         private const val DIRECTORY_MODELS = "models"
-
-        // Vision-related queries → trigger an on-demand frame capture so the metadata rides the
-        // [CONTEXT] block. Kept broad on purpose (D2 vision auto-capture).
-        private val VISION_KEYWORDS = listOf("see", "look", "camera", "frame", "in front", "what's there")
-        private const val VISION_CAPTURE_WAIT_MS = 1500L
 
         private fun Boolean.toRunLabel() = if (this) "running" else "stopped"
     }

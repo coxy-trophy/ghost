@@ -30,6 +30,7 @@ import com.coxy.ghost.memory.MemoryStore.Companion.stripGhostPrefix
 import com.coxy.ghost.memory.toMemoryBlock
 import com.coxy.ghost.perception.CameraCapture
 import com.coxy.ghost.perception.ContextStore
+import com.coxy.ghost.perception.VisionTrigger
 import com.coxy.ghost.perception.GhostPrompts
 import com.coxy.ghost.perception.MicListener
 import com.coxy.ghost.perception.wakeword.KwsSampleRecorder
@@ -37,9 +38,8 @@ import java.io.File
 import com.coxy.ghost.perception.PerceptionManager
 import com.coxy.ghost.perception.RetentionManager
 import com.coxy.ghost.perception.toPromptBlock
-import com.coxy.ghost.action.ActionCatalog
 import com.coxy.ghost.action.ActionExecutor
-import com.coxy.ghost.action.ActionParser
+import com.coxy.ghost.action.ActionRunner
 import com.coxy.ghost.cloud.CloudRouter
 import com.coxy.ghost.personality.PersonalityRepository
 import com.coxy.ghost.personality.PersonalityTranslator
@@ -478,11 +478,11 @@ class GhostService : LifecycleService() {
             return
         }
         try {
-            if (cameraCapture != null && hasCamera() &&
-                VISION_KEYWORDS.any { cmd.contains(it, true) }
+            if (cameraCapture != null && VisionTrigger.hasCameraPermission(this) &&
+                VisionTrigger.wantsVision(cmd)
             ) {
                 cameraCapture?.captureOnDemand(CameraCapture.FACING_BACK)
-                delay(VISION_CAPTURE_WAIT_MS)
+                delay(VisionTrigger.CAPTURE_WAIT_MS)
             }
             val cs = ContextStore.state.value
             // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block
@@ -501,7 +501,7 @@ class GhostService : LifecycleService() {
 
             // Phase 7: parse any structured actions from the reply, execute immediate ones, and
             // surface Tier 3 actions for confirmation. Also strip the deprecated "Ghost:" prefix.
-            val finalReply = stripGhostPrefix(runActions(sb.toString()))
+            val finalReply = stripGhostPrefix(ActionRunner.run(actionExecutor, sb.toString()))
             ContextStore.update { it.copy(voiceResponse = finalReply) }
 
             // After the reply completes (engine idle): persist the turn pair for future recall.
@@ -516,33 +516,6 @@ class GhostService : LifecycleService() {
             EngineGate.release()
         }
     }
-
-    /** Phase 7: parse actions, execute immediate ones, request confirmation for Tier 3. */
-    private suspend fun runActions(reply: String): String {
-        val parsed = ActionParser.extract(reply)
-        if (parsed.actions.isEmpty() && parsed.errors.isEmpty()) return reply
-
-        val batch = actionExecutor.runImmediate(parsed.actions)
-        if (batch.pending.isNotEmpty()) {
-            actionExecutor.requestConfirmation(batch.pending)
-        }
-
-        val resultLines = buildList {
-            addAll(parsed.errors.map { "[ACTION fail parser: $it]" })
-            addAll(batch.results.map { it.toReplyLine() })
-            if (batch.pending.isNotEmpty()) {
-                add("[ACTION pending ${batch.pending.joinToString { ActionCatalog.describe(it.id) }}: requires confirmation]")
-            }
-        }
-
-        val stripped = parsed.cleanedReply.trim()
-        return if (resultLines.isEmpty()) stripped
-               else stripped + "\n" + resultLines.joinToString("\n")
-    }
-
-    private fun hasCamera(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED
 
     private fun startForegroundCompat() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -625,8 +598,6 @@ class GhostService : LifecycleService() {
         private const val KWS_MIC_RELEASE_MS = 600L
 
         // Vision auto-capture for voice commands (parity with MainActivity's typed path).
-        private val VISION_KEYWORDS = listOf("see", "look", "camera", "frame", "in front", "what's there")
-        private const val VISION_CAPTURE_WAIT_MS = 1500L
 
         /** Read by the UI to reflect whether the daemon is up. */
         @Volatile

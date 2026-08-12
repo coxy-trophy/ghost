@@ -23,7 +23,7 @@ class FrameworkExecutor(private val context: Context) {
                 "get_battery" -> getBattery()
                 "get_wifi_state" -> getWifiState()
                 "get_bluetooth_state" -> getBluetoothState()
-                "toggle_torch" -> toggleTorch(parseState(action.params["state"]))
+                "toggle_torch" -> toggleTorch(parseActionState(action.params["state"]))
                 "set_brightness" -> setBrightness(parseInt(action.params["value"], 0, 255))
                 "set_volume" -> setVolume(
                     parseInt(action.params["value"], 0, 100),
@@ -99,12 +99,6 @@ class FrameworkExecutor(private val context: Context) {
         return "launched $pkg"
     }
 
-    private fun parseState(value: String?): Boolean {
-        return when (value?.lowercase()?.trim()) {
-            "on", "true", "1", "enable", "enabled" -> true
-            else -> false
-        }
-    }
 
     private fun parseInt(value: String?, min: Int, max: Int): Int {
         val raw = value?.trim() ?: "0"

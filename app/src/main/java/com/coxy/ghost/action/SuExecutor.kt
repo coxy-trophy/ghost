@@ -17,8 +17,8 @@ object SuExecutor {
     fun run(action: Action): ActionResult {
         return runCatching {
             val output = when (action.id) {
-                "toggle_wifi" -> svcWifi(parseState(action.params["state"]))
-                "toggle_bluetooth" -> svcBluetooth(parseState(action.params["state"]))
+                "toggle_wifi" -> svcWifi(parseActionState(action.params["state"]))
+                "toggle_bluetooth" -> svcBluetooth(parseActionState(action.params["state"]))
                 "force_stop_app" -> forceStopApp(sanitizePackage(action.params["package"]))
                 "disable_app" -> disableApp(sanitizePackage(action.params["package"]))
                 "uninstall_app" -> uninstallApp(sanitizePackage(action.params["package"]))
@@ -65,12 +65,6 @@ object SuExecutor {
     private fun shellEscape(s: String): String = "'" + s.replace("'", "'\\''") + "'"
 
 
-    private fun parseState(value: String?): Boolean {
-        return when (value?.lowercase()?.trim()) {
-            "on", "true", "1", "enable", "enabled" -> true
-            else -> false
-        }
-    }
 
     // Package names are validated by [PackageNames] — the shared shell-injection boundary.
     private fun sanitizePackage(pkg: String?): String = PackageNames.sanitize(pkg)
