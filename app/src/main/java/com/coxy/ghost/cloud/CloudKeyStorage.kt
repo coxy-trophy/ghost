@@ -41,7 +41,23 @@ object CloudKeyStorage {
         return context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    private fun prefs(context: Context): SharedPreferences = encryptedPrefs(context) ?: plainPrefs(context)
+    @Volatile
+    private var cached: SharedPreferences? = null
+
+    /**
+     * The prefs handle is built once per process. Each construction runs `MasterKey.Builder` and a
+     * full Tink init, and this used to happen on *every* get and set — including twice per cloud
+     * query from [CloudRouter]. SharedPreferences instances are already thread-safe and reflect
+     * later writes, so there is nothing to invalidate.
+     *
+     * If the Keystore is flaky and we fall back to plain prefs, that decision is cached too: a
+     * process that silently alternated between encrypted and plain storage would be worse than one
+     * that consistently uses the fallback.
+     */
+    private fun prefs(context: Context): SharedPreferences =
+        cached ?: synchronized(this) {
+            cached ?: (encryptedPrefs(context) ?: plainPrefs(context)).also { cached = it }
+        }
 
     fun getKey(context: Context): String? {
         val value = prefs(context).getString(KEY_API_KEY, null)

@@ -45,12 +45,12 @@ class CloudRouter(
         predictLength: Int = 512
     ): Flow<String> {
         val prefs = settingsProvider()
-        if (!prefs.enabled || keyProvider()?.isBlank() != false) {
+        // One read: keyProvider hits encrypted storage, and this was calling it twice per query.
+        val key = keyProvider()
+        if (!prefs.enabled || key.isNullOrBlank()) {
             Log.i(TAG, "cloud disabled or no key — routing to local engine")
             return engine.sendUserPrompt(fullPrompt)
         }
-
-        val key = keyProvider() ?: return engine.sendUserPrompt(fullPrompt)
         val filtered = CloudPromptFilter.apply(fullPrompt, prefs.privacyMode)
 
         return try {

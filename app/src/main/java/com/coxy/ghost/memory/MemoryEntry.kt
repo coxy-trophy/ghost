@@ -13,7 +13,7 @@ import androidx.room.PrimaryKey
  *
  * Retention (the Phase 6 gate): a hard cap on rows; when exceeded, [MemoryStore.prune] evicts the
  * lowest-[importance] non-pinned rows. `importance = recencyScore + 0.15 * recallCount` (pinned rows
- * get +1e9 so they're never evicted). It's denormalised as a column so eviction is a single SQL
+ * are excluded by `WHERE pinned = 0`, so they're never evicted). It's denormalised as a column so eviction is a single SQL
  * `ORDER BY importance ASC LIMIT n` — no full-table scan in Kotlin at prune time.
  *
  * `pinned` is forward-compat for Phase 6.2+ (user-curated facts that must survive eviction); it

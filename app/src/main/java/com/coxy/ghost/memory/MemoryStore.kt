@@ -56,39 +56,42 @@ class MemoryStore(context: Context) {
      */
     suspend fun recall(query: String, topK: Int = DEFAULT_TOP_K): List<MemoryEntry> {
         val q = withContext(embedDispatcher) { Embedder.embed(query) } ?: return emptyList()
-        val all = dao.all()
-        if (all.isEmpty()) return emptyList()
-        val scored = ArrayList<Pair<Float, MemoryEntry>>(all.size)
-        for (e in all) {
-            val eb = e.embedding
-            if (eb.isEmpty()) continue
-            val s = dot(q, eb.toFloats())
-            if (s > MIN_SIM) scored += s to e
+        // Score against the id+embedding projection, not whole entities: this runs on every single
+        // prompt, and loading 1000 rows' content strings to throw all but five away is waste that
+        // grows with the store.
+        val rows = dao.embeddings()
+        if (rows.isEmpty()) return emptyList()
+        val scored = ArrayList<Pair<Float, Long>>(rows.size)
+        for (r in rows) {
+            val s = dot(q, r.embedding.toFloats())
+            if (s > MIN_SIM) scored += s to r.id
         }
         if (scored.isEmpty()) return emptyList()
         scored.sortByDescending { it.first }
-        val winners = scored.take(topK)
-        runCatching { dao.bumpRecall(winners.map { it.second.id }) }
-        Log.i(TAG, "recall query=\"${query.take(40)}\" hits=${scored.size} top=${winners.firstOrNull()?.second?.content?.take(30)}")
-        return winners.map { it.second }
+        val winnerIds = scored.take(topK).map { it.second }
+        // byIds returns rows in whatever order SQLite hands back — restore similarity order.
+        val byId = dao.byIds(winnerIds).associateBy { it.id }
+        val winners = winnerIds.mapNotNull { byId[it] }
+        runCatching { dao.bumpRecall(winnerIds) }
+        Log.i(TAG, "recall query=\"${query.take(40)}\" hits=${scored.size} top=${winners.firstOrNull()?.content?.take(30)}")
+        return winners
     }
 
     /**
      * Importance-weighted retention (the Phase 6 gate). When the row count exceeds [MAX_TURNS],
-     * recompute every evictable row's importance (recency × recall-frequency) so eviction uses
-     * fresh scores, then delete the lowest-importance non-pinned rows down to the cap. Pinned rows
-     * get +1e9 and are never evicted.
+     * recompute every evictable row's importance (recency + recall-frequency) so eviction uses
+     * fresh scores, then delete the lowest-importance rows down to the cap. Pinned rows are
+     * excluded from both steps by `WHERE pinned = 0`, so they are never evicted.
+     *
+     * Called after every turn and again every 60s from the service, so the common path must stay
+     * cheap: it is a single COUNT until the store is actually over cap.
      */
     suspend fun prune() {
         val count = dao.count()
         if (count <= MAX_TURNS) return
-        val now = System.currentTimeMillis()
-        // Recompute importance for evictable rows so the eviction order reflects current recency +
-        // recall frequency (a frequently-recalled old memory must outrank a fresh chitchat one).
-        for (s in dao.evictableSnapshots()) {
-            val imp = recencyScore(now, s.tsMs) + 0.15 * s.recallCount
-            dao.setImportance(s.id, imp)
-        }
+        // One UPDATE for the whole table (a frequently-recalled old memory must outrank a fresh
+        // chitchat one), rather than a Kotlin loop issuing up to 1000 un-batched UPDATEs.
+        dao.refreshImportance(System.currentTimeMillis(), RECALL_WEIGHT)
         val toEvict = count - MAX_TURNS
         dao.evictLowest(toEvict)
         Log.i(TAG, "prune: evicted $toEvict rows (was $count, cap $MAX_TURNS)")
@@ -151,6 +154,9 @@ class MemoryStore(context: Context) {
         private const val MAX_TURNS = 1000
         private const val DEFAULT_TOP_K = 5
         private const val MIN_SIM = 0.20f // below this, not similar enough to inject
+
+        /** Weight on recallCount in the retention score. Mirrored in [MemoryDao.refreshImportance]. */
+        private const val RECALL_WEIGHT = 0.15
 
         /** Strip a leading "Ghost:" (case-insensitive, optional trailing space) from assistant text. */
         @JvmStatic
