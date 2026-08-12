@@ -250,19 +250,26 @@ class PerceptionManager(private val ctx: Context) {
     private val triggerListener = object : android.hardware.TriggerEventListener() {
         override fun onTrigger(event: android.hardware.TriggerEvent) {
             val now = System.currentTimeMillis()
+            // Arm ONLY the opposite transition. Re-arming the sensor that just fired spins: a
+            // stationary phone re-triggers stationary-detect the instant it is re-armed, which
+            // woke the app every ~5s until this was fixed. The pair is a state machine — once we
+            // know it is still, the only news is that it started moving.
             when (event.sensor.type) {
                 Sensor.TYPE_STATIONARY_DETECT -> {
                     update { it.copy(motion = MotionState.STATIONARY, timestampMs = now) }
-                    // Now listen for the opposite transition.
                     armTrigger(Sensor.TYPE_MOTION_DETECT)
                 }
-                Sensor.TYPE_MOTION_DETECT, Sensor.TYPE_SIGNIFICANT_MOTION -> {
+                Sensor.TYPE_MOTION_DETECT -> {
                     update { it.copy(motion = MotionState.MOVING, timestampMs = now) }
                     armTrigger(Sensor.TYPE_STATIONARY_DETECT)
                 }
+                Sensor.TYPE_SIGNIFICANT_MOTION -> {
+                    // Not part of the pair: it fires only on genuine sustained motion, so
+                    // re-arming itself is correct and does not spin.
+                    update { it.copy(motion = MotionState.MOVING, timestampMs = now) }
+                    armTrigger(Sensor.TYPE_SIGNIFICANT_MOTION)
+                }
             }
-            // Re-arm the one that just fired so repeated transitions keep being reported.
-            armTrigger(event.sensor.type)
         }
     }
 
@@ -325,10 +332,11 @@ class PerceptionManager(private val ctx: Context) {
      * heading has no event-driven equivalent.
      */
     private fun registerPostureAndMotionSensors() {
-        // One-shot sensors: armed via requestTriggerSensor, re-armed after each event.
-        // Stationary/motion are a matched pair; significant motion is a coarser backstop.
+        // One-shot sensors, armed via requestTriggerSensor. Only ONE of the stationary/motion pair
+        // is armed here: whichever fires arms its opposite from then on. Arming both would have
+        // the stationary sensor fire immediately on a resting phone while motion sat armed too,
+        // and the resulting churn is what this pair exists to avoid.
         armTrigger(Sensor.TYPE_STATIONARY_DETECT)
-        armTrigger(Sensor.TYPE_MOTION_DETECT)
         armTrigger(Sensor.TYPE_SIGNIFICANT_MOTION)
 
         // Special-trigger sensors: these DO use registerListener. Their types are not exposed as
