@@ -489,8 +489,8 @@ class GhostService : LifecycleService() {
             // (rides the sendUserPrompt string alongside [CONTEXT]). recall runs off the engine's
             // single-threaded llamaDispatcher (TFLite + Room); the engine is idle here.
             val memBlock = memoryStore.recall(cmd).toMemoryBlock()
-            val prompt = if (memBlock.isNotEmpty()) cs.toPromptBlock() + "\n" + memBlock + "\n" + cmd
-                         else cs.toPromptBlock() + "\n" + cmd
+            // Shared with MainActivity's typed path so the two cannot drift apart again.
+            val prompt = GhostPrompts.buildUserPrompt(cs, memBlock, cmd)
             Log.i(TAG, "voice command -> inference: $cmd")
             val sb = StringBuilder()
             cloudRouter.route(prompt, currentSystemPrompt, predictLength = 512).collect { token ->

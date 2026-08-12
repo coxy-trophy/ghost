@@ -41,8 +41,8 @@ import com.coxy.ghost.memory.MemoryStore.Companion.stripGhostPrefix
 import com.coxy.ghost.memory.toMemoryBlock
 import com.coxy.ghost.perception.CameraCapture
 import com.coxy.ghost.perception.ContextStore
+import com.coxy.ghost.perception.GhostPrompts
 import com.coxy.ghost.perception.MicState
-import com.coxy.ghost.perception.toPromptBlock
 import com.coxy.ghost.personality.PersonalityProfile
 import com.coxy.ghost.personality.PersonalityRepository
 import com.coxy.ghost.personality.PersonalitySnapshot
@@ -54,6 +54,7 @@ import android.provider.Settings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -422,11 +423,16 @@ class MainActivity : AppCompatActivity() {
             messages.add(Message(UUID.randomUUID().toString(), userMsg, true))
             lastAssistantMsg.clear()
             messages.add(Message(UUID.randomUUID().toString(), lastAssistantMsg.toString(), false))
+            // Both rows must be announced. Adding two items and then only calling notifyItemChanged
+            // for the last one leaves RecyclerView's cached count behind getItemCount(), which is
+            // the "Inconsistency detected" crash — the voice mirror below already does this right.
+            messageAdapter.notifyItemRangeInserted(messages.size - 2, 2)
 
             // Context injection (Phase 4 sensors + Phase 5 mic/camera): the only per-query context
             // channel is the sendUserPrompt string (setSystemPrompt is once-only). We prepend a
             // compact [CONTEXT ...] block; the UI still shows the clean user text above.
             generationJob = lifecycleScope.launch(Dispatchers.Default) {
+                var finalReply: String? = null
                 try {
                     // On-demand camera (D2): if the query seems to need vision, grab a fresh frame
                     // first so its metadata rides the [CONTEXT] block. The capture is async on the
@@ -438,18 +444,11 @@ class MainActivity : AppCompatActivity() {
                         delay(VISION_CAPTURE_WAIT_MS)
                     }
                     val cs = ContextStore.state.value
-                    val hasContext = cs.timestampMs > 0 || cs.lastTranscriptMs > 0 || cs.lastFrameMs > 0 ||
-                        cs.micState != MicState.UNKNOWN || !cs.micAvailable || !cs.cameraAvailable
                     // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block.
-                    // The only per-query context channel is the sendUserPrompt string; this rides it
-                    // alongside [CONTEXT]. recall runs off llamaDispatcher (TFLite + Room), engine idle.
+                    // recall runs off llamaDispatcher (TFLite + Room), engine idle. Assembly is
+                    // shared with the voice path so the two cannot drift apart again.
                     val memBlock = memoryStore.recall(userMsg).toMemoryBlock()
-                    val prompt = when {
-                        hasContext && memBlock.isNotEmpty() -> cs.toPromptBlock() + "\n" + memBlock + "\n" + userMsg
-                        hasContext -> cs.toPromptBlock() + "\n" + userMsg
-                        memBlock.isNotEmpty() -> memBlock + "\n" + userMsg
-                        else -> userMsg
-                    }
+                    val prompt = GhostPrompts.buildUserPrompt(cs, memBlock, userMsg)
 
                     cloudRouter.route(prompt, GhostService.currentSystemPrompt, predictLength = 512)
                         .collect { token ->
@@ -466,28 +465,20 @@ class MainActivity : AppCompatActivity() {
                     // After the reply completes (engine idle): parse any actions, execute them, strip
                     // the deprecated "Ghost:" prefix, then persist the final reply for future recall.
                     val rawReply = lastAssistantMsg.toString()
-                    val finalReply = stripGhostPrefix(runActions(rawReply))
+                    val reply = stripGhostPrefix(runActions(rawReply))
+                    finalReply = reply
 
                     // Update the assistant bubble if action results changed the text.
-                    if (finalReply != rawReply) {
+                    if (reply != rawReply) {
                         withContext(Dispatchers.Main) {
                             lastAssistantMsg.clear()
-                            lastAssistantMsg.append(finalReply)
+                            lastAssistantMsg.append(reply)
                             val n = messages.size
                             check(n > 0 && !messages[n - 1].isUser)
-                            messages.removeAt(n - 1).copy(content = finalReply)
+                            messages.removeAt(n - 1).copy(content = reply)
                                 .let { messages.add(it) }
                             messageAdapter.notifyItemChanged(messages.size - 1)
                         }
-                    }
-
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        memoryStore.remember("user", userMsg, "typed")
-                        memoryStore.remember("assistant", finalReply, "typed")
-                        memoryStore.prune()
-                        // Phase 6.2: extract durable facts from the exchange. Runs on a process-surviving
-                        // scope and respects EngineGate so it doesn't race the next user query.
-                        factExtractor.extract(userMsg, finalReply, "typed")
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -499,6 +490,25 @@ class MainActivity : AppCompatActivity() {
                     // mid-conversation, which is how a missing GGUF turned into a crash.
                     Log.w(TAG, "typed inference failed", e)
                     showGenerationError(e)
+                } finally {
+                    // onStop() cancels this job, and everything below the collect used to live in
+                    // the cancellable body — so backgrounding the app mid-reply dropped the whole
+                    // exchange from memory, and GHOST had no recollection of a conversation the
+                    // user had just had. NonCancellable persists whatever was generated, partial
+                    // reply included.
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        val reply = finalReply ?: stripGhostPrefix(lastAssistantMsg.toString())
+                        if (reply.isNotBlank()) {
+                            runCatching {
+                                memoryStore.remember("user", userMsg, "typed")
+                                memoryStore.remember("assistant", reply, "typed")
+                                memoryStore.prune()
+                            }.onFailure { Log.w(TAG, "failed to persist typed turn", it) }
+                            // Phase 6.2: durable-fact extraction runs on its own process-surviving
+                            // scope and respects EngineGate, so it can't race the next query.
+                            factExtractor.extract(userMsg, reply, "typed")
+                        }
+                    }
                 }
             }
             // Fires even if the job is cancelled before its body starts (Activity stopped between

@@ -61,6 +61,17 @@ enum class Proximity { NEAR, FAR, UNKNOWN }
 enum class MicState { SILENT, VOICE, UNKNOWN, OFF }
 
 /**
+ * True when perception has produced something worth spending tokens on.
+ *
+ * [toPromptBlock] always returns a populated `[CONTEXT ...]` line — activity, location, light and
+ * proximity are unconditional — so without this guard an idle device prepends four "unknown" fields
+ * to every single prompt.
+ */
+fun ContextState.hasSignal(): Boolean =
+    timestampMs > 0L || lastTranscriptMs > 0L || lastFrameMs > 0L ||
+        micState != MicState.UNKNOWN || !micAvailable || !cameraAvailable
+
+/**
  * The one-line ASCII context block prepended to each user message before [sendUserPrompt].
  * Kept compact to minimise token cost on a 1.5B model with an 8k context budget — transcripts are
  * hard-truncated to ~15 words, and the camera is reported as metadata only (the model cannot see).

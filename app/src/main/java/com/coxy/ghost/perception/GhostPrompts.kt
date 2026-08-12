@@ -59,6 +59,25 @@ Some moments your mind runs deeper (online) and some it runs closer to the bone 
         return "$base\n\n${com.coxy.ghost.personality.PersonalityTranslator.hardFloors()}"
     }
 
+    /**
+     * Assemble the per-query prompt. `sendUserPrompt` is the only per-query channel
+     * ([InferenceEngine.setSystemPrompt] is once-only), so the `[CONTEXT]` and `[MEMORY]` blocks
+     * ride the user text.
+     *
+     * Both the typed path ([com.coxy.ghost.MainActivity]) and the voice path
+     * ([com.coxy.ghost.GhostService]) call this. They previously assembled it separately and had
+     * drifted apart — the typed path dropped the context block when perception was idle, the voice
+     * path always sent it — so the same words produced a different prompt depending on whether they
+     * were typed or spoken.
+     */
+    fun buildUserPrompt(state: ContextState, memoryBlock: String, userText: String): String {
+        val parts = mutableListOf<String>()
+        if (state.hasSignal()) parts += state.toPromptBlock()
+        if (memoryBlock.isNotEmpty()) parts += memoryBlock
+        parts += userText
+        return parts.joinToString("\n")
+    }
+
     /** Backwards-compatible constant for callers that don't yet supply a personality block. */
     @Deprecated("Use buildSystemPrompt with the active PersonalityProfile for Phase 6.3+")
     const val SYSTEM: String = BASE_ROLE
