@@ -43,7 +43,7 @@ class OrbView @JvmOverloads constructor(
         /** Multiplier on the phase clock — how fast the lights travel. */
         val tempo: Float,
     ) {
-        IDLE(0.55f, 0.012f, 0.5f),
+        IDLE(0.74f, 0.016f, 0.5f),
         LISTENING(0.85f, 0.030f, 1.0f),
         THINKING(1.00f, 0.020f, 2.2f),
         SPEAKING(1.15f, 0.055f, 1.6f),

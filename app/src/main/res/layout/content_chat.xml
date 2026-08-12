@@ -11,6 +11,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:id="@+id/sensor_card"
         android:orientation="vertical"
         android:background="@drawable/bg_card"
         android:layout_marginHorizontal="16dp"

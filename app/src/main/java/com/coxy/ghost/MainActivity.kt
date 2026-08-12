@@ -93,6 +93,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var screenLive: View
     private lateinit var screenSystem: View
     private lateinit var sensorChips: LinearLayout
+    private lateinit var sensorCard: View
     private lateinit var orb: com.coxy.ghost.ui.OrbView
     private lateinit var liveState: TextView
     private lateinit var liveHeard: TextView
@@ -176,6 +177,7 @@ class MainActivity : AppCompatActivity() {
         screenLive = findViewById(R.id.screen_live)
         screenSystem = findViewById(R.id.screen_system)
         sensorChips = findViewById(R.id.sensor_chips)
+        sensorCard = findViewById(R.id.sensor_card)
         orb = findViewById(R.id.orb)
         liveState = findViewById(R.id.live_state)
         liveHeard = findViewById(R.id.live_heard)
@@ -399,6 +401,9 @@ class MainActivity : AppCompatActivity() {
                 add(Chip("brain: ${brain.label}" + if (cloud && model != null) " · $model" else "", cloud))
             }
         }
+        // An empty card reads as a stray blank pane; a channel with nothing to say shows nothing,
+        // the same rule the chips themselves follow.
+        sensorCard.visibility = if (chips.isEmpty()) View.GONE else View.VISIBLE
         sensorChips.removeAllViews()
         val pad = (10 * resources.displayMetrics.density).toInt()
         val padV = (6 * resources.displayMetrics.density).toInt()
