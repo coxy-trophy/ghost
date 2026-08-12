@@ -87,6 +87,7 @@ class CloudRouter(
 
             if (reply.isNotBlank()) {
                 lastBrain = Brain.CLOUD
+                lastModel = client.lastModelUsed
                 logInteraction(filtered, reply, wasFallback, latency, prefs.privacyMode, prefs.loggingEnabled)
                 // Emit the whole cloud reply as a single token so the existing streaming UI works.
                 flow { emit(reply) }.flowOn(kotlinx.coroutines.Dispatchers.Default)
@@ -125,7 +126,9 @@ class CloudRouter(
         loggingEnabled: Boolean
     ) = withContext(kotlinx.coroutines.Dispatchers.IO) {
         if (!loggingEnabled) return@withContext
-        val modelUsed = if (wasFallback) "local" else OllamaCloudClient.DEFAULT_MODEL_CHAIN.firstOrNull() ?: "unknown"
+        // Was reported as chain[0] regardless of which model answered, which mislabels every
+        // distillation row whenever the primary fails over.
+        val modelUsed = if (wasFallback) "local" else lastModel ?: "unknown"
         val row = CloudInteraction(
             requestedMs = System.currentTimeMillis(),
             modelUsed = modelUsed,
@@ -158,6 +161,11 @@ class CloudRouter(
         @Volatile
         @JvmStatic
         var lastBrain: Brain = Brain.UNKNOWN
+
+        /** The cloud model that answered last, e.g. "qwen3.5". Null until one has. */
+        @Volatile
+        @JvmStatic
+        var lastModel: String? = null
 
         private const val TAG = "CloudRouter"
         private const val MAX_LOG_CHARS = 8_000

@@ -394,7 +394,9 @@ class MainActivity : AppCompatActivity() {
             // screen said so.
             val brain = com.coxy.ghost.cloud.CloudRouter.lastBrain
             if (brain != com.coxy.ghost.cloud.CloudRouter.Companion.Brain.UNKNOWN) {
-                add(Chip("brain: ${brain.label}", brain == com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD))
+                val model = com.coxy.ghost.cloud.CloudRouter.lastModel
+                val cloud = brain == com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD
+                add(Chip("brain: ${brain.label}" + if (cloud && model != null) " · $model" else "", cloud))
             }
         }
         sensorChips.removeAllViews()

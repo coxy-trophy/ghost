@@ -66,6 +66,7 @@ class OllamaCloudClient(
         for (model in models) {
             val result = runCatching { sendToModel(model, body) }
             result.onSuccess { reply ->
+                lastModelUsed = model
                 Log.i(TAG, "Cloud reply from $model: ${reply.take(80)}")
                 emit(reply)
                 return@flow
@@ -77,6 +78,10 @@ class OllamaCloudClient(
         }
         throw IOException("all cloud models failed: ${lastError?.message ?: "unknown"}", lastError)
     }.flowOn(Dispatchers.IO)
+
+    @Volatile
+    override var lastModelUsed: String? = null
+        private set
 
     private suspend fun sendToModel(model: String, body: JSONObject): String = withContext(Dispatchers.IO) {
         body.put("model", model)
@@ -124,12 +129,24 @@ class OllamaCloudClient(
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
         /**
-         * Default model chain for Ollama Cloud inference.
+         * Model chain for Ollama Cloud inference, tried strongest-first: [chat] walks the list and
+         * returns the first model that answers, so a name that no longer resolves costs one failed
+         * request rather than the whole query.
          *
-         * Ollama Cloud model names use a `-cloud` suffix and are served from `https://ollama.com/api/chat`.
-         * The chain is strongest-first; each fallback is smaller/faster/cheaper.
+         * `qwen3.5` is the chosen model. The gpt-oss entries are kept behind it deliberately, not
+         * as leftovers: Ollama Cloud names normally carry a `-cloud` suffix, so a bare `qwen3.5`
+         * may resolve as a cloud model or may not, and until that is confirmed against the real API
+         * the fallbacks are what stand between a wrong name and GHOST silently dropping to the
+         * local 1.5B. `CloudRouter.lastBrain` and the chat chip will show which one actually
+         * answered.
+         *
+         * To confirm what this key can reach, once one is stored:
+         *   ./gradlew :app:connectedDebugAndroidTest \
+         *     -Pandroid.testInstrumentationRunnerArguments.class=com.coxy.ghost.cloud.CloudModelDiscoveryTest \
+         *     -Pandroid.testInstrumentationRunnerArguments.cloudLive=true
          */
         val DEFAULT_MODEL_CHAIN = listOf(
+            "qwen3.5",
             "gpt-oss:120b-cloud",
             "gpt-oss:20b-cloud"
         )
