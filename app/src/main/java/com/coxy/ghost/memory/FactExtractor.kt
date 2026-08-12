@@ -55,12 +55,11 @@ class FactExtractor(
             return
         }
 
-        if (EngineGate.busy) {
+        if (!EngineGate.tryAcquire()) {
             Log.i(TAG, "engine busy — fact extraction skipped")
             return
         }
 
-        EngineGate.busy = true
         val start = System.currentTimeMillis()
         try {
             val prompt = buildExtractionPrompt(userMsg, assistantReply)
@@ -83,7 +82,7 @@ class FactExtractor(
         } catch (e: Exception) {
             Log.w(TAG, "fact extraction failed", e)
         } finally {
-            EngineGate.busy = false
+            EngineGate.release()
         }
     }
 

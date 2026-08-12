@@ -464,13 +464,12 @@ class GhostService : LifecycleService() {
      * single-threaded and two concurrent sendUserPrompt calls would corrupt the conversation.
      */
     private suspend fun runVoiceCommand(cmd: String) {
-        if (EngineGate.busy) {
+        if (!EngineGate.tryAcquire()) {
             Log.i(TAG, "engine busy — voice command dropped: $cmd")
             // Surface it in the chat so the spoken command isn't left as a silent empty bubble.
             ContextStore.update { it.copy(voiceResponse = "(skipped — GHOST was already responding)") }
             return
         }
-        EngineGate.busy = true
         try {
             if (cameraCapture != null && hasCamera() &&
                 VISION_KEYWORDS.any { cmd.contains(it, true) }
@@ -507,7 +506,7 @@ class GhostService : LifecycleService() {
         } catch (e: Exception) {
             Log.w(TAG, "voice inference failed", e)
         } finally {
-            EngineGate.busy = false
+            EngineGate.release()
         }
     }
 

@@ -51,10 +51,10 @@ import com.coxy.ghost.perception.toStatusLine
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import android.provider.Settings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -406,11 +406,10 @@ class MainActivity : AppCompatActivity() {
             }
             // EngineGate: the engine is single-threaded; a voice command may already be generating
             // (driven by GhostService). Reject a typed send in that case rather than racing it.
-            if (EngineGate.busy) {
+            if (!EngineGate.tryAcquire()) {
                 Toast.makeText(this, "GHOST is responding — wait a moment", Toast.LENGTH_SHORT).show()
                 return
             }
-            EngineGate.busy = true
             userInputEt.text = null
             userInputEt.isEnabled = false
             sendFab.isEnabled = false
@@ -423,73 +422,107 @@ class MainActivity : AppCompatActivity() {
             // channel is the sendUserPrompt string (setSystemPrompt is once-only). We prepend a
             // compact [CONTEXT ...] block; the UI still shows the clean user text above.
             generationJob = lifecycleScope.launch(Dispatchers.Default) {
-                // On-demand camera (D2): if the query seems to need vision, grab a fresh frame
-                // first so its metadata rides the [CONTEXT] block. The capture is async on the
-                // camera thread; wait briefly for it to land in ContextStore.
-                if (GhostService.isRunning && hasCamera() &&
-                    VISION_KEYWORDS.any { userMsg.contains(it, true) }
-                ) {
-                    sendCaptureFrame(CameraCapture.FACING_BACK)
-                    delay(VISION_CAPTURE_WAIT_MS)
-                }
-                val cs = ContextStore.state.value
-                val hasContext = cs.timestampMs > 0 || cs.lastTranscriptMs > 0 || cs.lastFrameMs > 0 ||
-                    cs.micState != MicState.UNKNOWN || !cs.micAvailable || !cs.cameraAvailable
-                // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block.
-                // The only per-query context channel is the sendUserPrompt string; this rides it
-                // alongside [CONTEXT]. recall runs off llamaDispatcher (TFLite + Room), engine idle.
-                val memBlock = memoryStore.recall(userMsg).toMemoryBlock()
-                val prompt = when {
-                    hasContext && memBlock.isNotEmpty() -> cs.toPromptBlock() + "\n" + memBlock + "\n" + userMsg
-                    hasContext -> cs.toPromptBlock() + "\n" + userMsg
-                    memBlock.isNotEmpty() -> memBlock + "\n" + userMsg
-                    else -> userMsg
-                }
+                try {
+                    // On-demand camera (D2): if the query seems to need vision, grab a fresh frame
+                    // first so its metadata rides the [CONTEXT] block. The capture is async on the
+                    // camera thread; wait briefly for it to land in ContextStore.
+                    if (GhostService.isRunning && hasCamera() &&
+                        VISION_KEYWORDS.any { userMsg.contains(it, true) }
+                    ) {
+                        sendCaptureFrame(CameraCapture.FACING_BACK)
+                        delay(VISION_CAPTURE_WAIT_MS)
+                    }
+                    val cs = ContextStore.state.value
+                    val hasContext = cs.timestampMs > 0 || cs.lastTranscriptMs > 0 || cs.lastFrameMs > 0 ||
+                        cs.micState != MicState.UNKNOWN || !cs.micAvailable || !cs.cameraAvailable
+                    // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block.
+                    // The only per-query context channel is the sendUserPrompt string; this rides it
+                    // alongside [CONTEXT]. recall runs off llamaDispatcher (TFLite + Room), engine idle.
+                    val memBlock = memoryStore.recall(userMsg).toMemoryBlock()
+                    val prompt = when {
+                        hasContext && memBlock.isNotEmpty() -> cs.toPromptBlock() + "\n" + memBlock + "\n" + userMsg
+                        hasContext -> cs.toPromptBlock() + "\n" + userMsg
+                        memBlock.isNotEmpty() -> memBlock + "\n" + userMsg
+                        else -> userMsg
+                    }
 
-                cloudRouter.route(prompt, GhostService.currentSystemPrompt, predictLength = 512)
-                    .onCompletion {
-                        EngineGate.busy = false
-                        withContext(Dispatchers.Main) {
-                            userInputEt.isEnabled = isModelReady
-                            sendFab.isEnabled = isModelReady
+                    cloudRouter.route(prompt, GhostService.currentSystemPrompt, predictLength = 512)
+                        .collect { token ->
+                            withContext(Dispatchers.Main) {
+                                val n = messages.size
+                                check(n > 0 && !messages[n - 1].isUser)
+                                messages.removeAt(n - 1).copy(
+                                    content = lastAssistantMsg.append(token).toString()
+                                ).let { messages.add(it) }
+                                messageAdapter.notifyItemChanged(messages.size - 1)
+                            }
                         }
-                    }.collect { token ->
+
+                    // After the reply completes (engine idle): parse any actions, execute them, strip
+                    // the deprecated "Ghost:" prefix, then persist the final reply for future recall.
+                    val rawReply = lastAssistantMsg.toString()
+                    val finalReply = stripGhostPrefix(runActions(rawReply))
+
+                    // Update the assistant bubble if action results changed the text.
+                    if (finalReply != rawReply) {
                         withContext(Dispatchers.Main) {
+                            lastAssistantMsg.clear()
+                            lastAssistantMsg.append(finalReply)
                             val n = messages.size
                             check(n > 0 && !messages[n - 1].isUser)
-                            messages.removeAt(n - 1).copy(
-                                content = lastAssistantMsg.append(token).toString()
-                            ).let { messages.add(it) }
+                            messages.removeAt(n - 1).copy(content = finalReply)
+                                .let { messages.add(it) }
                             messageAdapter.notifyItemChanged(messages.size - 1)
                         }
                     }
 
-                // After the reply completes (engine idle): parse any actions, execute them, strip
-                // the deprecated "Ghost:" prefix, then persist the final reply for future recall.
-                val rawReply = lastAssistantMsg.toString()
-                val finalReply = stripGhostPrefix(runActions(rawReply))
-
-                // Update the assistant bubble if action results changed the text.
-                if (finalReply != rawReply) {
-                    withContext(Dispatchers.Main) {
-                        lastAssistantMsg.clear()
-                        lastAssistantMsg.append(finalReply)
-                        val n = messages.size
-                        check(n > 0 && !messages[n - 1].isUser)
-                        messages.removeAt(n - 1).copy(content = finalReply)
-                            .let { messages.add(it) }
-                        messageAdapter.notifyItemChanged(messages.size - 1)
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        memoryStore.remember("user", userMsg, "typed")
+                        memoryStore.remember("assistant", finalReply, "typed")
+                        memoryStore.prune()
+                        // Phase 6.2: extract durable facts from the exchange. Runs on a process-surviving
+                        // scope and respects EngineGate so it doesn't race the next user query.
+                        factExtractor.extract(userMsg, finalReply, "typed")
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // The engine throws at collection time when no model is loaded
+                    // (check(state is ModelReady) in InferenceEngineImpl), and CloudRouter only
+                    // falls back to it — it does not catch what the fallback itself throws. Uncaught
+                    // here the exception escapes lifecycleScope and takes the Activity down
+                    // mid-conversation, which is how a missing GGUF turned into a crash.
+                    Log.w(TAG, "typed inference failed", e)
+                    showGenerationError(e)
                 }
+            }
+            // Fires even if the job is cancelled before its body starts (Activity stopped between
+            // the acquire above and the first dispatch), so the gate cannot leak and wedge the
+            // engine for the life of the process.
+            generationJob?.invokeOnCompletion {
+                EngineGate.release()
+                runOnUiThread {
+                    userInputEt.isEnabled = isModelReady
+                    sendFab.isEnabled = isModelReady
+                }
+            }
+        }
+    }
 
-                lifecycleScope.launch(Dispatchers.IO) {
-                    memoryStore.remember("user", userMsg, "typed")
-                    memoryStore.remember("assistant", finalReply, "typed")
-                    memoryStore.prune()
-                    // Phase 6.2: extract durable facts from the exchange. Runs on a process-surviving
-                    // scope and respects EngineGate so it doesn't race the next user query.
-                    factExtractor.extract(userMsg, finalReply, "typed")
-                }
+    /**
+     * Surface a failed generation in the assistant bubble instead of letting it crash the Activity.
+     * Uses a guard rather than `check` so a failure while the bubble list is in an unexpected shape
+     * can't throw a second time out of the error handler.
+     */
+    private suspend fun showGenerationError(e: Exception) {
+        val text = "[GHOST couldn't answer: ${e.message ?: e.javaClass.simpleName}]"
+        withContext(Dispatchers.Main) {
+            lastAssistantMsg.clear()
+            lastAssistantMsg.append(text)
+            val n = messages.size
+            if (n > 0 && !messages[n - 1].isUser) {
+                messages.removeAt(n - 1).copy(content = text).let { messages.add(it) }
+                messageAdapter.notifyItemChanged(messages.size - 1)
             }
         }
     }
