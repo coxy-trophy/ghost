@@ -1,4 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GHOST's voice: neutral glass. The squared bottom-start corner anchors it to the left edge. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#E5E5EA" />
-    <corners android:radius="16dp" />
+    <solid android:color="@color/glass_fill" />
+    <stroke android:width="1dp" android:color="@color/glass_stroke" />
+    <corners
+        android:topLeftRadius="22dp"
+        android:topRightRadius="22dp"
+        android:bottomRightRadius="22dp"
+        android:bottomLeftRadius="6dp" />
 </shape>

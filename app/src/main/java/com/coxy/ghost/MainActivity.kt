@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
+import android.view.View
 import android.view.LayoutInflater
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -51,7 +52,6 @@ import com.coxy.ghost.personality.PersonalitySnapshot
 import com.coxy.ghost.personality.PersonalityTranslator
 import com.coxy.ghost.perception.toStatusLine
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.floatingactionbutton.FloatingActionButton
 import android.provider.Settings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +77,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var perceptionTv: TextView
     private lateinit var messagesRv: RecyclerView
     private lateinit var userInputEt: EditText
-    private lateinit var sendFab: FloatingActionButton
+    private lateinit var sendFab: android.widget.ImageButton
     private lateinit var btnPick: MaterialButton
     private lateinit var btnStart: MaterialButton
     private lateinit var btnStop: MaterialButton
@@ -85,6 +85,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPersonality: MaterialButton
     private lateinit var btnCloud: MaterialButton
     private lateinit var btnMic: MaterialButton
+    private lateinit var statusDot: View
+    private var pulse: android.animation.ValueAnimator? = null
 
     private val engine: InferenceEngine by lazy { AiChat.getInferenceEngine(applicationContext) }
 
@@ -158,6 +160,11 @@ class MainActivity : AppCompatActivity() {
         btnPersonality = findViewById(R.id.btn_personality)
         btnCloud = findViewById(R.id.btn_cloud)
         btnMic = findViewById(R.id.btn_mic)
+        statusDot = findViewById(R.id.status_dot)
+        // The typed path rewrites the last bubble on every token; the default change animation
+        // would cross-fade it on each one, which reads as flicker while GHOST is talking.
+        (messagesRv.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)
+            ?.supportsChangeAnimations = false
 
         btnPick.setOnClickListener { pickModel.launch(arrayOf("*/*")) }
         btnStart.setOnClickListener { startGhost() }
@@ -195,7 +202,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             ContextStore.state.collect { cs ->
                 withContext(Dispatchers.Main) {
-                    perceptionTv.text = cs.toStatusLine()
+                    perceptionTv.text = cs.toStatusLine().removePrefix("Perception: ")
                     // Mic button tracks the actual listener state (OFF means disabled by user).
                     updateMicButton(cs.micState != MicState.OFF)
                 }
@@ -275,22 +282,62 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyState(state: InferenceEngine.State) {
-        val modelBasename = modelPath?.let { File(it).name } ?: "none"
-        statusTv.text = "GHOST ${GhostService.isRunning.toRunLabel()} — $state — model: $modelBasename"
+        val modelBasename = modelPath?.let { File(it).name?.removeSuffix(".gguf") } ?: "none"
+        statusTv.text = "${GhostService.isRunning.toRunLabel()} · ${state.label()} · $modelBasename"
         isModelReady = state.isModelLoaded
         userInputEt.isEnabled = isModelReady
         sendFab.isEnabled = isModelReady
-        if (isModelReady) userInputEt.hint = "Type and send a message!" else userInputEt.hint = "GHOST not ready."
+        userInputEt.hint = getString(
+            if (isModelReady) R.string.ghost_input_hint else R.string.ghost_input_hint_offline
+        )
         updateButtons()
     }
 
+    /**
+     * The engine's State objects have no readable toString, so the status line used to render as
+     * "com.arm.aichat.InferenceEngine${'$'}State${'$'}ProcessingSystemPrompt@a65f1f0". Map to words.
+     */
+    private fun InferenceEngine.State.label(): String = when {
+        this::class.java.simpleName.contains("Ready", true) -> "ready"
+        this::class.java.simpleName.contains("ProcessingSystemPrompt", true) -> "waking"
+        this::class.java.simpleName.contains("Processing", true) -> "thinking"
+        this::class.java.simpleName.contains("Loading", true) -> "loading"
+        this::class.java.simpleName.contains("Error", true) -> "error"
+        else -> this::class.java.simpleName.lowercase()
+    }
+
     private fun updateButtons() {
+        updateStatusDot()
         btnStart.isEnabled = (modelPath != null) && !GhostService.isRunning
         btnStop.isEnabled = GhostService.isRunning
         // On-demand camera capture (D2): available while the daemon is up + CAMERA is granted.
         btnCapture.isEnabled = GhostService.isRunning && VisionTrigger.hasCameraPermission(this)
         // Mic toggle: only meaningful while the daemon is up (it owns the listener).
         btnMic.isEnabled = GhostService.isRunning
+    }
+
+    /**
+     * The dot is the one piece of chrome that is always truthful about whether GHOST is alive:
+     * green and breathing while the daemon runs, flat grey when it does not. The pulse is stopped
+     * rather than left running invisibly, so a stopped GHOST costs no frames.
+     */
+    private fun updateStatusDot() {
+        val live = GhostService.isRunning
+        val colour = ContextCompat.getColor(this, if (live) R.color.state_live else R.color.state_idle)
+        statusDot.backgroundTintList = android.content.res.ColorStateList.valueOf(colour)
+        if (live && pulse == null) {
+            pulse = android.animation.ValueAnimator.ofFloat(0.35f, 1f).apply {
+                duration = 1500L
+                repeatMode = android.animation.ValueAnimator.REVERSE
+                repeatCount = android.animation.ValueAnimator.INFINITE
+                addUpdateListener { statusDot.alpha = it.animatedValue as Float }
+                start()
+            }
+        } else if (!live) {
+            pulse?.cancel()
+            pulse = null
+            statusDot.alpha = 1f
+        }
     }
 
     private fun toggleMic() {
@@ -585,6 +632,8 @@ class MainActivity : AppCompatActivity() {
     private fun showCloudDialog() = CloudDialog(this, lifecycleScope).show()
 
     override fun onStop() {
+        pulse?.cancel()
+        pulse = null
         generationJob?.cancel()
         super.onStop()
     }

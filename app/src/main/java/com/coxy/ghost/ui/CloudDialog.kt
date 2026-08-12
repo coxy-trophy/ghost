@@ -76,7 +76,7 @@ class CloudDialog(
         }
         container.addView(modeSpinner)
 
-        AlertDialog.Builder(activity)
+        AlertDialog.Builder(activity, R.style.Theme_Ghost_Dialog)
             .setTitle(activity.getString(R.string.ghost_cloud_title))
             .setView(container)
             .setPositiveButton(R.string.ghost_cloud_save) { _, _ ->

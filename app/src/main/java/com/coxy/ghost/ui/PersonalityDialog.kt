@@ -111,7 +111,7 @@ class PersonalityDialog(
             sliderContainer.addView(row, sliderContainer.childCount - 2)
         }
 
-        val dialog = AlertDialog.Builder(activity)
+        val dialog = AlertDialog.Builder(activity, R.style.Theme_Ghost_Dialog)
             .setTitle(activity.getString(R.string.ghost_personality_title))
             .setView(container)
             .setPositiveButton(R.string.ghost_personality_save, null)
@@ -137,7 +137,7 @@ class PersonalityDialog(
                 Toast.makeText(activity, "No snapshots yet", Toast.LENGTH_SHORT).show()
                 return
             }
-            AlertDialog.Builder(activity)
+            AlertDialog.Builder(activity, R.style.Theme_Ghost_Dialog)
                 .setTitle(R.string.ghost_personality_rollback)
                 .setItems(names.toTypedArray()) { _, which ->
                     scope.launch(Dispatchers.IO) {
@@ -185,7 +185,7 @@ class PersonalityDialog(
                     val snapshots = repo.recentSnapshots(20)
                     val names = snapshots.map { it.reason } + "+ New snapshot"
                     withContext(Dispatchers.Main) {
-                        AlertDialog.Builder(activity)
+                        AlertDialog.Builder(activity, R.style.Theme_Ghost_Dialog)
                             .setTitle(R.string.ghost_personality_snapshots)
                             .setItems(names.toTypedArray()) { _, which ->
                                 if (which == names.lastIndex) {

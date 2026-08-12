@@ -3,6 +3,7 @@ package com.coxy.ghost
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
@@ -45,6 +46,34 @@ class MessageAdapter(
     }
 
     override fun getItemCount(): Int = messages.size
+
+    /**
+     * Bubbles rise into place: fade in while sliding up a little.
+     *
+     * Deliberately hooked to *attach*, not bind. The typed path rewrites the last message on every
+     * streamed token, so animating in onBindViewHolder would make GHOST's reply strobe as it types.
+     * A view attaches once when it enters the window, which is exactly when the entrance belongs.
+     * `lastAnimatedPosition` stops old bubbles re-animating when they scroll back into view.
+     */
+    override fun onViewAttachedToWindow(holder: RecyclerView.ViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        val position = holder.bindingAdapterPosition
+        if (position == RecyclerView.NO_POSITION || position <= lastAnimatedPosition) return
+        lastAnimatedPosition = position
+
+        holder.itemView.apply {
+            alpha = 0f
+            translationY = 28f
+            animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(260L)
+                .setInterpolator(DecelerateInterpolator(1.6f))
+                .start()
+        }
+    }
+
+    private var lastAnimatedPosition = -1
 
     class UserMessageViewHolder(view: View) : RecyclerView.ViewHolder(view)
     class AssistantMessageViewHolder(view: View) : RecyclerView.ViewHolder(view)

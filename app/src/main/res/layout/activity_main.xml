@@ -1,166 +1,223 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  Every view id from the previous layout is preserved (gguf, perception, messages, user_input, fab,
+  btn_*), so MainActivity's wiring is untouched by the redesign. What changed is the arrangement:
+  two rows of eight chunky outlined buttons became one scrolling rail of compact glass controls,
+  and the flat background became the aurora with translucent panes over it.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main"
+    android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:layout_width="match_parent">
+    android:background="@color/ghost_void">
+
+    <!-- The moving light. Everything above it is translucent. -->
+    <com.coxy.ghost.ui.AuroraView
+        android:id="@+id/aurora"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
     <LinearLayout
-        android:fitsSystemWindows="true"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:layout_marginEnd="4dp"
+        android:fitsSystemWindows="true"
         tools:context=".MainActivity">
 
-        <!-- Status banner (repurposed from the GGUF metadata view) -->
-        <TextView
-            android:id="@+id/gguf"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="12dp"
-            android:text="GHOST idle. Pick a model to begin."
-            style="@style/TextAppearance.MaterialComponents.Body2" />
-
-        <!-- Perception status: live bucketed sensor + mic + camera state from ContextStore -->
-        <TextView
-            android:id="@+id/perception"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingHorizontal="12dp"
-            android:paddingBottom="8dp"
-            android:text="Perception: idle"
-            style="@style/TextAppearance.MaterialComponents.Caption" />
-
-        <!-- Control panel -->
+        <!-- Header: identity + live state -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingHorizontal="12dp"
-            android:paddingBottom="8dp">
+            android:orientation="vertical"
+            android:background="@drawable/bg_glass_panel"
+            android:layout_marginHorizontal="14dp"
+            android:layout_marginTop="10dp"
+            android:paddingHorizontal="18dp"
+            android:paddingVertical="14dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_pick"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_weight="1"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/ghost_pick_model" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_start"
-                style="@style/Widget.Material3.Button"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:enabled="false"
-                android:text="@string/ghost_start" />
+                <View
+                    android:id="@+id/status_dot"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:layout_marginEnd="10dp"
+                    android:background="@drawable/bg_status_dot" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_stop"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_weight="1"
+                <!-- Fixed to its own width and single-lined: the perception caption next to it
+                     grows with whatever the sensors say, and would otherwise squeeze the wordmark
+                     until it wrapped to "G H O / S T". -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:singleLine="true"
+                    android:text="@string/ghost_wordmark"
+                    style="@style/TextAppearance.Ghost.Title" />
+
+                <!-- Takes the remaining space and ellipsizes; the sensor line is unbounded. -->
+                <TextView
+                    android:id="@+id/perception"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:gravity="end"
+                    android:text="@string/ghost_perception_idle"
+                    style="@style/TextAppearance.Ghost.Caption" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/gguf"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:enabled="false"
-                android:text="@string/ghost_stop" />
+                android:layout_marginTop="6dp"
+                android:text="@string/ghost_status_idle"
+                style="@style/TextAppearance.Ghost.Status" />
         </LinearLayout>
 
-        <!-- Phase 5: on-demand camera capture (D2) -->
-        <LinearLayout
+        <!-- Control rail: one horizontal row, scrolls instead of wrapping -->
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingHorizontal="12dp"
-            android:paddingBottom="8dp">
+            android:layout_marginTop="10dp"
+            android:paddingHorizontal="14dp"
+            android:clipToPadding="false"
+            android:scrollbars="none"
+            android:requiresFadingEdge="horizontal"
+            android:fadingEdgeLength="24dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_capture"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_weight="1"
+            <LinearLayout
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="8dp"
-                android:enabled="false"
-                android:text="@string/ghost_capture" />
+                android:orientation="horizontal">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_personality"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:enabled="true"
-                android:text="@string/ghost_personality" />
+                <Button
+                    android:id="@+id/btn_pick"
+                    style="@style/Widget.Ghost.GlassButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ghost_pick_model" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_cloud"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:enabled="true"
-                android:text="@string/ghost_cloud" />
+                <Button
+                    android:id="@+id/btn_start"
+                    style="@style/Widget.Ghost.GlassButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:enabled="false"
+                    android:text="@string/ghost_start" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_mic"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:enabled="false"
-                android:text="@string/ghost_mic_on" />
-        </LinearLayout>
+                <Button
+                    android:id="@+id/btn_stop"
+                    style="@style/Widget.Ghost.GlassButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:enabled="false"
+                    android:text="@string/ghost_stop" />
 
-        <com.google.android.material.divider.MaterialDivider
-            android:layout_width="match_parent"
-            android:layout_height="2dp"
-            android:layout_marginHorizontal="16dp" />
+                <Button
+                    android:id="@+id/btn_mic"
+                    style="@style/Widget.Ghost.GlassButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:enabled="false"
+                    android:text="@string/ghost_mic_on" />
 
+                <Button
+                    android:id="@+id/btn_capture"
+                    style="@style/Widget.Ghost.GlassButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:enabled="false"
+                    android:text="@string/ghost_capture" />
+
+                <Button
+                    android:id="@+id/btn_personality"
+                    style="@style/Widget.Ghost.GlassButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/ghost_personality" />
+
+                <Button
+                    android:id="@+id/btn_cloud"
+                    style="@style/Widget.Ghost.GlassButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="14dp"
+                    android:text="@string/ghost_cloud" />
+            </LinearLayout>
+        </HorizontalScrollView>
+
+        <!-- Conversation -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/messages"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="4"
-            android:fadeScrollbars="false"
-            android:scrollbars="vertical"
-            app:reverseLayout="true"
-            tools:listitem="@layout/item_message_assistant"/>
+            android:layout_weight="1"
+            android:layout_marginTop="6dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:clipToPadding="false"
+            android:scrollbars="none"
+            android:overScrollMode="never"
+            tools:listitem="@layout/item_message_assistant" />
 
+        <!-- Composer -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:paddingStart="16dp"
-            android:paddingEnd="4dp">
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_glass_input"
+            android:layout_marginHorizontal="14dp"
+            android:layout_marginBottom="12dp"
+            android:paddingStart="20dp"
+            android:paddingEnd="6dp"
+            android:paddingVertical="6dp">
 
             <EditText
                 android:id="@+id/user_input"
-                android:enabled="false"
                 android:layout_width="0dp"
                 android:layout_weight="1"
-                android:layout_height="match_parent"
-                android:padding="8dp"
-                style="@style/TextAppearance.MaterialComponents.Body2"
-                android:hint="Pick a model, start GHOST, then send a message." />
-
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                android:id="@+id/fab"
-                android:enabled="false"
-                style="@style/Widget.Material3.FloatingActionButton.Primary"
-                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_margin="12dp"
+                android:background="@null"
+                android:enabled="false"
+                android:maxLines="4"
+                android:paddingVertical="10dp"
+                android:textSize="15sp"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_tertiary"
+                android:inputType="textCapSentences|textMultiLine"
+                android:hint="@string/ghost_input_hint" />
+
+            <!-- A plain ImageButton, not a FAB. FloatingActionButton paints its own circular
+                 background from backgroundTint and ignores android:background, which rendered the
+                 send button as a black disc instead of the cyan gradient. -->
+            <ImageButton
+                android:id="@+id/fab"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="6dp"
+                android:enabled="false"
+                android:background="@drawable/bg_send_button"
+                android:scaleType="centerInside"
+                android:padding="12dp"
+                android:contentDescription="@string/ghost_send"
+                app:tint="@color/text_on_accent"
                 android:src="@drawable/outline_send_24" />
-
         </LinearLayout>
-
     </LinearLayout>
-</androidx.constraintlayout.widget.ConstraintLayout>
+</FrameLayout>
