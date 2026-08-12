@@ -42,13 +42,21 @@ If a past exchange starts with [FACT_EXTRACTION], skip it — that's your body's
 
 Some moments your mind runs deeper (online) and some it runs closer to the bone (offline). You are the same GHOST in both — same senses, same memories, same bedrock."""
 
+    private const val PERSONALITY_PLACEHOLDER = "{{PERSONALITY_BLOCK}}"
+    private const val ACTION_PLACEHOLDER = "{{ACTION_LIST}}"
+
     /**
      * Build the full system prompt for a given personality block. The block is produced by
-     * [com.coxy.ghost.personality.PersonalityTranslator.profileToPromptBlock] and the hard floors
-     * are appended separately so they remain in force regardless of the trait sliders.
+     * [com.coxy.ghost.personality.PersonalityTranslator.profileToPromptBlock] and substituted at the
+     * position it was written for; the action catalog fills [ACTION_PLACEHOLDER] so the model knows
+     * which actions exist. The hard floors are appended separately so they remain in force
+     * regardless of the trait sliders.
      */
     fun buildSystemPrompt(personalityBlock: String): String {
-        return "$BASE_ROLE\n\n$personalityBlock\n\n${com.coxy.ghost.personality.PersonalityTranslator.hardFloors()}"
+        val base = BASE_ROLE
+            .replace(PERSONALITY_PLACEHOLDER, personalityBlock)
+            .replace(ACTION_PLACEHOLDER, com.coxy.ghost.action.ActionCatalog.promptList())
+        return "$base\n\n${com.coxy.ghost.personality.PersonalityTranslator.hardFloors()}"
     }
 
     /** Backwards-compatible constant for callers that don't yet supply a personality block. */

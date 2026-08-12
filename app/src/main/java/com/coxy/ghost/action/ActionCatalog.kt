@@ -94,6 +94,9 @@ object ActionCatalog {
     /** True if the action name exists in the catalog. */
     fun contains(id: String): Boolean = id.lowercase() in catalog
 
+    /** All known action IDs. */
+    fun ids(): Set<String> = catalog.keys
+
     /** Validate that required params are present. */
     fun validate(actionId: String, params: Map<String, String>): List<String> {
         val entry = lookup(actionId) ?: return listOf("unknown action '$actionId'")
@@ -103,4 +106,17 @@ object ActionCatalog {
 
     /** Human-readable description of an action. */
     fun describe(actionId: String): String = lookup(actionId)?.description ?: actionId
+
+    /**
+     * Compact rendering of the catalog for the system prompt, so the model is told what its hands
+     * can actually do instead of inferring it from the two inline examples. Required params are in
+     * parentheses; Tier 3 entries are marked because they only count after Coxy says yes.
+     */
+    fun promptList(): String = catalog.entries.joinToString("; ") { (id, entry) ->
+        val params =
+            if (entry.requiredParams.isEmpty()) ""
+            else entry.requiredParams.joinToString(",", "(", ")")
+        val confirm = if (entry.tier == ActionTier.TIER_3_DESTRUCTIVE) " [only after he says yes]" else ""
+        "$id$params$confirm"
+    }
 }

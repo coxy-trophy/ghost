@@ -445,7 +445,7 @@ class GhostService : LifecycleService() {
         )
         val personalityBlock = PersonalityTranslator.profileToPromptBlock(profile)
         val prompt = GhostPrompts.buildSystemPrompt(personalityBlock)
-        currentSystemPrompt = prompt
+        appliedSystemPrompt = prompt
         Log.i(TAG, "Applying system prompt with personality: $personalityBlock")
         runCatching { engine.setSystemPrompt(prompt) }
             .onSuccess {
@@ -643,10 +643,23 @@ class GhostService : LifecycleService() {
          * Phase 8: the most recent system prompt applied to the local engine. The cloud brain needs
          * the same system text so it answers in the same persona and obeys the same action rules.
          * Updated each time [applySystemPromptOnce] succeeds.
+         *
+         * Falls back to the baseline-personality prompt when the local model never loaded (no GGUF
+         * staged, or a load failure): [applySystemPromptOnce] never runs on that path, and handing
+         * the cloud an empty system prompt would leave it with no persona, no bedrock and no action
+         * rules while it can still emit action blocks.
          */
-        @Volatile
         @JvmStatic
-        var currentSystemPrompt: String = ""
-            private set
+        val currentSystemPrompt: String
+            get() = appliedSystemPrompt.ifBlank { baselineSystemPrompt }
+
+        @Volatile
+        private var appliedSystemPrompt: String = ""
+
+        private val baselineSystemPrompt: String by lazy {
+            GhostPrompts.buildSystemPrompt(
+                PersonalityTranslator.profileToPromptBlock(PersonalityTranslator.baseline())
+            )
+        }
     }
 }
