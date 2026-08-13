@@ -34,6 +34,8 @@ import com.coxy.ghost.perception.VisionTrigger
 import com.coxy.ghost.perception.GhostPrompts
 import com.coxy.ghost.perception.MicListener
 import com.coxy.ghost.perception.wakeword.KwsSampleRecorder
+import com.coxy.ghost.perception.wakeword.KwsScorer
+import com.coxy.ghost.perception.wakeword.WakeTrigger
 import java.io.File
 import com.coxy.ghost.perception.BleScanner
 import com.coxy.ghost.perception.PerceptionManager
@@ -123,6 +125,15 @@ class GhostService : LifecycleService() {
         // Phase 6: initialise the on-device sentence embedder (copies the ~22 MB model asset to
         // filesDir on first run). Off the main thread; idempotent if MainActivity already inited it.
         lifecycleScope.launch(Dispatchers.IO) { Embedder.init(applicationContext) }
+
+        // Drop fact-extraction output that was stored as conversation. Those rows keep being
+        // recalled into [MEMORY] and keep re-teaching GHOST to answer in "FACT: GHOST did X" form
+        // and to address Coxy by GHOST's own name, so blocking new ones is not enough on its own.
+        // Idempotent and cheap (one scan of a table capped at 1000 rows); runs once per process.
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { memoryStore.purgeExtractionArtifacts() }
+                .onFailure { Log.w(TAG, "memory artifact purge failed", it) }
+        }
 
         // Thermal monitoring (GHOST.md §8: measure honestly). The listener fires on status
         // changes; the telemetry coroutine below logs current status + battery temp every 60s.
@@ -270,15 +281,29 @@ class GhostService : LifecycleService() {
                 }
             }
             ACTION_TOGGLE_MIC -> {
-                // Phase 8.1: user toggle for continuous mic listening. Persist the new state and
-                // tell MicListener to start/stop recognizer without recreating the service.
+                // The "leave the mic on" latch for Live mode. Persist the new state and tell
+                // MicListener to open/close without recreating the service.
+                // EXTRA_ENABLED makes this a set, not a flip. MainActivity used to write the pref
+                // itself and *then* send this action, which flipped it straight back — so the mic
+                // button changed its own label and nothing else. A shell caller can still omit the
+                // extra to get the old toggle behaviour.
+                val explicit = if (intent.hasExtra(EXTRA_ENABLED)) {
+                    intent.getBooleanExtra(EXTRA_ENABLED, false)
+                } else null
                 lifecycleScope.launch {
-                    val currently = GhostPrefs.isMicEnabled(applicationContext)
-                    val next = !currently
+                    val next = explicit ?: !GhostPrefs.isMicEnabled(applicationContext)
                     GhostPrefs.setMicEnabled(applicationContext, next)
                     micListener?.setEnabled(next)
-                    Log.i(TAG, "Mic ${if (next) "enabled" else "disabled"} by user toggle")
+                    Log.i(TAG, "Mic latch ${if (next) "OPEN" else "OFF"}")
                 }
+            }
+            ACTION_PTT_DOWN -> {
+                // Push-to-talk pressed. Momentary and never persisted — the mic is open exactly as
+                // long as the button is held.
+                micListener?.startPushToTalk()
+            }
+            ACTION_PTT_UP -> {
+                micListener?.stopPushToTalk()
             }
             ACTION_SET_MODEL_PATH -> {
                 // Persist the GGUF path without the UI. MainActivity's document picker was the only
@@ -326,6 +351,34 @@ class GhostService : LifecycleService() {
                     }
                     Log.i(TAG, "KWS capture ${if (file != null) "wrote ${file.absolutePath}" else "FAILED"}")
                     if (wasEnabled) micListener?.setEnabled(true)
+                }
+            }
+            ACTION_SCORE_KWS -> {
+                // Phase 5.2 gate instrument: replay recorded clips through the shipped model and log
+                // what it actually scored. Answers whether a missed wake word is a tuning problem or
+                // a training problem — see KwsScorer's header.
+                val label = intent.getStringExtra(EXTRA_LABEL) ?: KwsSampleRecorder.LABEL_POSITIVE
+                Log.i(TAG, "KWS scoring requested (label=$label)")
+                lifecycleScope.launch {
+                    withContext(Dispatchers.IO) {
+                        KwsScorer.scoreRecordedClips(applicationContext, label)
+                    }
+                }
+            }
+            ACTION_SET_KWS_TUNING -> {
+                // Persists trigger tuning for the wake-word spotter. Nothing listens ambiently any
+                // more (MicListener's header explains why), so this no longer changes live
+                // behaviour — it is kept because a retrained spotter has to be re-tuned against
+                // this same stored value before it could be armed again, and `kws_gate.sh` reads it.
+                val threshold = if (intent.hasExtra(EXTRA_THRESHOLD)) {
+                    intent.getFloatExtra(EXTRA_THRESHOLD, WakeTrigger.DEFAULT_THRESHOLD)
+                } else null
+                val frames = if (intent.hasExtra(EXTRA_FRAMES)) {
+                    intent.getIntExtra(EXTRA_FRAMES, WakeTrigger.DEFAULT_FRAMES)
+                } else null
+                Log.i(TAG, "KWS tuning stored (threshold=$threshold frames=$frames) — spotter is not armed")
+                lifecycleScope.launch {
+                    GhostPrefs.setKwsTuning(applicationContext, threshold, frames)
                 }
             }
             ACTION_KILL -> {
@@ -603,13 +656,20 @@ class GhostService : LifecycleService() {
         const val ACTION_RELOAD_PERSONALITY = "com.coxy.ghost.action.RELOAD_PERSONALITY"
         const val ACTION_CAPTURE_FRAME = "com.coxy.ghost.action.CAPTURE_FRAME"
         const val ACTION_TOGGLE_MIC = "com.coxy.ghost.action.TOGGLE_MIC"
+        const val ACTION_PTT_DOWN = "com.coxy.ghost.action.PTT_DOWN"
+        const val ACTION_PTT_UP = "com.coxy.ghost.action.PTT_UP"
         const val ACTION_KILL = "com.coxy.ghost.action.KILL"
         const val ACTION_CAPTURE_KWS = "com.coxy.ghost.action.CAPTURE_KWS"
+        const val ACTION_SCORE_KWS = "com.coxy.ghost.action.SCORE_KWS"
+        const val ACTION_SET_KWS_TUNING = "com.coxy.ghost.action.SET_KWS_TUNING"
         const val ACTION_SET_MODEL_PATH = "com.coxy.ghost.action.SET_MODEL_PATH"
         const val EXTRA_FACING = "facing"
         const val EXTRA_PATH = "path"
         const val EXTRA_LABEL = "label"
         const val EXTRA_SECONDS = "seconds"
+        const val EXTRA_THRESHOLD = "threshold"
+        const val EXTRA_FRAMES = "frames"
+        const val EXTRA_ENABLED = "enabled"
 
         /** Time to let MicListener's AudioRecord/recognizer release the mic before we grab it. */
         private const val KWS_MIC_RELEASE_MS = 600L

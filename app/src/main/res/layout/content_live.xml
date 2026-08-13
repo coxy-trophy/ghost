@@ -53,6 +53,41 @@
         style="@style/TextAppearance.Ghost.Body"
         android:textColor="@color/on_surface" />
 
+    <!--
+      Push to talk. Sits above the control row and is the largest target on the screen, because it
+      is the primary way to speak to GHOST now that nothing listens ambiently.
+    -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="96dp"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+
+        <ImageButton
+            android:id="@+id/live_ptt"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:background="@drawable/bg_ptt"
+            android:contentDescription="@string/ghost_ptt_hold"
+            android:src="@drawable/ic_mic"
+            android:scaleType="centerInside"
+            android:padding="24dp"
+            app:tint="@color/cyan" />
+
+        <TextView
+            android:id="@+id/live_ptt_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/ghost_ptt_hold"
+            style="@style/TextAppearance.Ghost.Label"
+            android:textColor="@color/on_surface_muted"
+            android:textSize="11sp" />
+    </LinearLayout>
+
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -67,7 +102,7 @@
             android:layout_width="72dp"
             android:layout_height="52dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/ghost_live_mute"
+            android:contentDescription="@string/ghost_live_latch"
             android:src="@drawable/ic_mic_off"
             app:tint="@color/cyan"
             xmlns:app="http://schemas.android.com/apk/res-auto" />

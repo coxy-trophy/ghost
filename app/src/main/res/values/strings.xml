@@ -60,6 +60,11 @@
     <string name="ghost_live_speaking">SPEAKING…</string>
     <string name="ghost_live_mute">Mute microphone</string>
     <string name="ghost_live_exit">Leave live mode</string>
+    <string name="ghost_live_latch">Leave the mic on</string>
+    <string name="ghost_ptt_hold">HOLD TO SPEAK</string>
+    <string name="ghost_ptt_listening">LISTENING — RELEASE TO SEND</string>
+    <string name="ghost_live_open">MIC ON — SPEAK ANY TIME</string>
+    <string name="ghost_live_mic_denied">Microphone permission needed</string>
 
     <!-- System screen -->
     <string name="ghost_system_title">Configuration</string>

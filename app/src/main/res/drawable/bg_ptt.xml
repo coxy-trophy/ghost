@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Push-to-talk target. Circular rather than the 10dp soft-technical corners used elsewhere: this is
+  a thumb target held down for the length of a sentence, and a circle is the shape a thumb finds
+  without looking. The pressed state is a filled cyan rather than a ripple — the user needs to be
+  able to tell, at a glance and mid-sentence, that the mic is actually open.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="oval">
+            <solid android:color="@color/cyan" />
+            <stroke android:width="2dp" android:color="@color/cyan" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/surface" />
+            <stroke android:width="2dp" android:color="@color/cyan_deep" />
+        </shape>
+    </item>
+</selector>

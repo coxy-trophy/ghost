@@ -5,13 +5,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
-import android.os.HandlerThread
 import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -19,37 +14,45 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.coxy.ghost.GhostPrefs
-import com.coxy.ghost.perception.wakeword.TfliteWakeWordDetector
-import com.coxy.ghost.perception.wakeword.WakeWordDetector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlin.math.log10
-import kotlin.math.sqrt
 
 /**
- * Phase 5.2 microphone perception.
+ * Microphone input, driven explicitly by the user — never ambiently.
  *
- * Continuous listening is now done via a single always-on [AudioRecord] stream feeding a tiny
- * on-device TFLite wake-word detector for "Hey Ghost". Only when the detector fires do we spin
- * up a transient [SpeechRecognizer] session to capture the rest of the utterance. That avoids
- * the audible HAL on/off blip caused by repeatedly restarting the recognizer in a loop.
+ * **The always-on "Hey Ghost" spotter was removed on 2026-08-13.** It fired on ordinary room noise
+ * roughly once every 30 seconds (measured: GHOST.md v0.11.3), and every false fire transcribed
+ * whatever was in the room and ran it through the engine as a command. The damage was not just the
+ * audible HAL blip — 31 of 37 stored voice turns were ambient speech and TV dialogue ("Where the
+ * princess to Amiga receiving"), which then came back through `[MEMORY]` as things Coxy had
+ * supposedly said. The spotter model itself saturates at probability 1.000 on room audio and cannot
+ * be fixed by tuning, only by retraining, so leaving it armed had no upside.
  *
- * Two phrasings still work:
- *  - "Hey Ghost, <command>" — the detector fires, the recognizer captures the whole phrase,
- *    the wake words are stripped, and the remainder is dispatched.
- *  - "Hey Ghost" … (pause) … "<command>" — if the first recognizer only hears the wake phrase,
- *    a second command-only recognizer listens for up to [COMMAND_AWAIT_MS].
+ * The wake-word classes are kept ([com.coxy.ghost.perception.wakeword]) — the detector, the trigger,
+ * the sample recorder and the scorer are what a retrained model would be validated with. Nothing in
+ * this class starts them any more.
  *
- * The [AudioRecord] thread owns the detector and never touches the engine; SpeechRecognizer callbacks
- * run on the main thread and only update [ContextStore].
+ * Three modes, all entered deliberately:
+ *  - [MicMode.OFF] — the default. No recognizer, no audio capture, nothing listening.
+ *  - [MicMode.PUSH_TO_TALK] — held for the duration of a press. [startPushToTalk] opens the
+ *    recognizer, [stopPushToTalk] closes it and dispatches whatever was said. No wake word: if the
+ *    user is holding the button, they mean it.
+ *  - [MicMode.OPEN] — a latch for open conversation while Live mode is on. Every final utterance is
+ *    a command. This is the mode that makes the recognizer restart audibly on this device; that is
+ *    expected here and absent everywhere else, which was the Phase 5.2 design intent all along.
+ *
+ * [SpeechRecognizer] must be created and driven from the main thread — it enforces
+ * `checkIsCalledFromMainThread` — so every method here hops to [mainHandler].
  */
 class MicListener(
     private val ctx: Context,
     private val retention: RetentionManager? = null,
 ) {
+
+    enum class MicMode { OFF, PUSH_TO_TALK, OPEN }
 
     companion object {
         private const val TAG = "MicListener"
@@ -66,322 +69,275 @@ class MicListener(
         var isRunning: Boolean = false
             private set
 
-        // AudioRecord: 16 kHz mono 16-bit PCM — matches the TFLite KWS model.
-        private const val SAMPLE_RATE = 16000
-        private const val CHANNEL = AudioFormat.CHANNEL_IN_MONO
-        private const val FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val READ_SAMPLES = 800            // 50 ms at 16 kHz
-        private const val RMS_WRITE_THROTTLE_MS = 250L
+        /** Current mode, readable by the UI so the Live screen can reflect the real state. */
+        @Volatile
+        @JvmStatic
+        var mode: MicMode = MicMode.OFF
+            private set
 
-        // Wake-word detector threshold and cooldown.
-        private const val WAKE_THRESHOLD = 0.80f
-        private const val TRIGGER_COOLDOWN_MS = 2000L
+        /**
+         * Endpointing for OPEN mode: how much silence ends an utterance. Long enough not to chop a
+         * pause mid-sentence, short enough that a finished sentence is acted on promptly.
+         */
+        private const val OPEN_SILENCE_MS = 1200L
 
-        // SpeechRecognizer settings for the command capture after a trigger.
-        private const val COMMAND_SILENCE_MS = 1500L
-        private const val COMMAND_MAX_MS = 8000L
-        private const val COMMAND_AWAIT_MS = 5000L
+        /**
+         * Push-to-talk deliberately uses a very long silence threshold. The release of the button is
+         * the endpoint — not the recognizer's own VAD — so a user who pauses to think mid-sentence
+         * does not get cut off and half their command dispatched.
+         */
+        private const val PTT_SILENCE_MS = 10_000L
+
+        /** Safety cap so a stuck press or a lost callback cannot hold the mic open forever. */
+        private const val PTT_MAX_MS = 30_000L
+
+        /** Gap before restarting the recognizer in OPEN mode after a result or a no-match. */
+        private const val OPEN_RESTART_MS = 400L
+
+        /** Backoff after repeated hard errors, so a broken recogniser cannot spin. */
+        private const val OPEN_BACKOFF_MS = 4000L
+        private const val MAX_FAST_RESTARTS = 8
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val micThread = HandlerThread("ghost-mic").apply { start() }
-    private val micHandler = Handler(micThread.looper)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private var audioRecord: AudioRecord? = null
-    private var detector: WakeWordDetector? = null
-    private var commandRecognizer: SpeechRecognizer? = null
+    private var recognizer: SpeechRecognizer? = null
 
-    @Volatile private var enabledByPref: Boolean = true
-    @Volatile private var capturingCommand: Boolean = false
-    @Volatile private var awaitingCommand: Boolean = false
-    @Volatile private var lastRmsWriteMs: Long = 0L
-    @Volatile private var lastTriggerMs: Long = 0L
-    @Volatile private var consecutiveErrors: Int = 0
+    /** Token so we only cancel our own posted work, not everything on the shared main looper. */
+    private val token = Any()
 
-    // Token for the command-capture timeout so we only cancel our own main-thread work,
-    // not every callback posted to the shared main looper.
-    private val commandToken = Any()
+    @Volatile private var pttHeld: Boolean = false
+    private var consecutiveErrors: Int = 0
 
+    /**
+     * Restore the persisted latch on service start. Only [MicMode.OPEN] persists — push-to-talk is
+     * by definition momentary, and nothing should come back from a reboot already listening.
+     */
     fun start() {
-        if (isRunning) return
-        if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
-            Log.i(TAG, "RECORD_AUDIO not granted — mic disabled")
-            ContextStore.update { it.copy(micAvailable = false) }
-            return
-        }
         scope.launch {
-            enabledByPref = GhostPrefs.isMicEnabled(ctx)
-            micHandler.post {
-                if (enabledByPref) startPipeline() else setMicOff()
+            val open = GhostPrefs.isMicEnabled(ctx)
+            mainHandler.post { if (open) enterOpenMode() else enterOffMode() }
+        }
+    }
+
+    /** Turn the OPEN latch on or off. Persisted by GhostService's ACTION_TOGGLE_MIC handler. */
+    fun setEnabled(enabled: Boolean) {
+        mainHandler.post { if (enabled) enterOpenMode() else enterOffMode() }
+    }
+
+    /** True while the mic is latched open. */
+    fun isOpen(): Boolean = mode == MicMode.OPEN
+
+    // ---------------------------------------------------------------- push to talk
+
+    /**
+     * Begin a push-to-talk capture. Safe to call while [MicMode.OPEN] is latched — the latch is
+     * suspended for the duration of the press and restored on release.
+     */
+    fun startPushToTalk() {
+        mainHandler.post {
+            if (!hasPermission()) {
+                Log.i(TAG, "RECORD_AUDIO not granted — cannot push to talk")
+                ContextStore.update { it.copy(micAvailable = false) }
+                return@post
             }
+            if (pttHeld) return@post
+            pttHeld = true
+            teardownRecognizer()
+            mode = MicMode.PUSH_TO_TALK
+            isRunning = true
+            Log.i(TAG, "push-to-talk: pressed")
+            ContextStore.update {
+                it.copy(micState = MicState.VOICE, micAvailable = true, transcriptSnippet = null)
+            }
+            startRecognizer(PTT_SILENCE_MS)
+            // If the release event is ever lost (view detached mid-press, activity backgrounded),
+            // this stops the mic rather than leaving it open indefinitely.
+            mainHandler.postDelayed({
+                if (pttHeld) {
+                    Log.w(TAG, "push-to-talk: release never arrived — closing after ${PTT_MAX_MS}ms")
+                    stopPushToTalk()
+                }
+            }, token, PTT_MAX_MS)
         }
     }
 
     /**
-     * Toggle continuous listening on/off at runtime. Called from GhostService when the user taps
-     * the mic button in MainActivity. The new state is persisted so it survives service restarts.
+     * End a push-to-talk capture. `stopListening()` tells the recognizer the utterance is over and
+     * makes it emit its final result, which arrives on [CommandListener.onResults].
      */
-    fun setEnabled(enabled: Boolean) {
-        enabledByPref = enabled
-        micHandler.post {
-            if (enabled) {
-                if (!isRunning) startPipeline()
-            } else {
-                stopPipeline(setOff = true)
+    fun stopPushToTalk() {
+        mainHandler.post {
+            if (!pttHeld) return@post
+            pttHeld = false
+            mainHandler.removeCallbacksAndMessages(token)
+            Log.i(TAG, "push-to-talk: released")
+            ContextStore.update { it.copy(micState = MicState.SILENT) }
+            val r = recognizer
+            if (r == null) {
+                restoreAfterPtt()
+                return@post
             }
+            // Do not destroy here — the final result is still to come. onResults/onError restores.
+            runCatching { r.stopListening() }
+                .onFailure {
+                    Log.w(TAG, "stopListening failed on release", it)
+                    restoreAfterPtt()
+                }
         }
     }
 
-    fun stop() {
-        micHandler.post {
-            stopPipeline(setOff = false)
-            micThread.quitSafely()
+    /** After a press finishes, go back to whatever the latch says. */
+    private fun restoreAfterPtt() {
+        teardownRecognizer()
+        scope.launch {
+            val open = GhostPrefs.isMicEnabled(ctx)
+            mainHandler.post { if (open) enterOpenMode() else enterOffMode() }
         }
-        scope.cancel()
     }
 
-    private fun setMicOff() {
+    // ---------------------------------------------------------------- modes
+
+    private fun enterOffMode() {
+        mainHandler.removeCallbacksAndMessages(token)
+        teardownRecognizer()
+        pttHeld = false
+        mode = MicMode.OFF
+        isRunning = false
+        consecutiveErrors = 0
         ContextStore.update {
             it.copy(
                 micState = MicState.OFF,
                 micAvailable = true,
                 audioLevelDb = -1f,
-                transcriptSnippet = null
+                transcriptSnippet = null,
             )
         }
+        Log.i(TAG, "mic OFF")
     }
 
-    private fun startPipeline() {
-        if (isRunning) return
+    private fun enterOpenMode() {
+        if (!hasPermission()) {
+            Log.i(TAG, "RECORD_AUDIO not granted — mic unavailable")
+            ContextStore.update { it.copy(micAvailable = false) }
+            return
+        }
+        mainHandler.removeCallbacksAndMessages(token)
+        teardownRecognizer()
+        mode = MicMode.OPEN
         isRunning = true
-        capturingCommand = false
-        awaitingCommand = false
         consecutiveErrors = 0
-        Log.i(TAG, "starting Phase 5.2 continuous mic perception")
-
-        val d = TfliteWakeWordDetector()
-        detector = d
-        if (!d.init(ctx)) {
-            Log.w(TAG, "wake-word detector unavailable — mic disabled")
-            ContextStore.update { it.copy(micAvailable = false) }
-            isRunning = false
-            return
-        }
-
-        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL, FORMAT)
-            .coerceAtLeast(READ_SAMPLES * 2)
-        val record = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            AudioRecord.Builder()
-                .setAudioSource(MediaRecorder.AudioSource.MIC)
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setEncoding(FORMAT)
-                        .setSampleRate(SAMPLE_RATE)
-                        .setChannelMask(CHANNEL)
-                        .build()
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .build()
-        } else {
-            @Suppress("DEPRECATION")
-            AudioRecord(MediaRecorder.AudioSource.MIC, SAMPLE_RATE, CHANNEL, FORMAT, bufferSize)
-        }
-
-        if (record?.state != AudioRecord.STATE_INITIALIZED) {
-            Log.w(TAG, "AudioRecord failed to initialise — mic disabled")
-            ContextStore.update { it.copy(micAvailable = false) }
-            isRunning = false
-            return
-        }
-        audioRecord = record
-        record.startRecording()
-        ContextStore.update { it.copy(micState = MicState.SILENT) }
-        micHandler.post(AudioLoop())
-        Log.i(TAG, "AudioRecord started at ${SAMPLE_RATE} Hz")
-    }
-
-    private inner class AudioLoop : Runnable {
-        private val readBuf = ShortArray(READ_SAMPLES)
-        override fun run() {
-            if (!isRunning || capturingCommand) return
-            val record = audioRecord ?: return
-            val read = record.read(readBuf, 0, readBuf.size)
-            if (read < 0) {
-                Log.w(TAG, "AudioRecord read error: $read")
-                consecutiveErrors++
-                if (consecutiveErrors > 5) {
-                    stopPipeline(setOff = false)
-                    ContextStore.update { it.copy(micAvailable = false) }
-                } else {
-                    micHandler.postDelayed(this, 100)
-                }
-                return
-            }
-            if (read == 0) {
-                // AudioRecord was stopped (e.g. during command capture). Do not reschedule here;
-                // resumeKws() will restart the loop.
-                return
-            }
-            consecutiveErrors = 0
-
-            val chunk = if (read == readBuf.size) readBuf else readBuf.copyOf(read)
-            updateAudioLevel(chunk)
-
-            val prob = detector?.process(chunk) ?: 0f
-            if (prob >= WAKE_THRESHOLD && !cooldownActive()) {
-                lastTriggerMs = System.currentTimeMillis()
-                Log.i(TAG, "wake-word triggered (prob=%.2f)".format(prob))
-                startCommandCapture()
-                return
-            }
-
-            micHandler.post(this)
-        }
-    }
-
-    private fun cooldownActive(): Boolean {
-        return System.currentTimeMillis() - lastTriggerMs < TRIGGER_COOLDOWN_MS
-    }
-
-    private fun updateAudioLevel(samples: ShortArray) {
-        val now = System.currentTimeMillis()
-        if (now - lastRmsWriteMs < RMS_WRITE_THROTTLE_MS) return
-        lastRmsWriteMs = now
-        var sum = 0.0
-        for (s in samples) {
-            val v = s / 32768.0
-            sum += v * v
-        }
-        val rms = sqrt(sum / samples.size.coerceAtLeast(1))
-        val db = if (rms <= 0) -100f else (20f * log10(rms)).toFloat()
-        ContextStore.update { it.copy(audioLevelDb = db) }
-    }
-
-    /** Called on the mic thread when the detector fires. Hand the mic to SpeechRecognizer. */
-    private fun startCommandCapture() {
-        if (capturingCommand) return
-        capturingCommand = true
         ContextStore.update {
-            it.copy(micState = MicState.VOICE, transcriptSnippet = "Hey Ghost", lastTranscriptMs = System.currentTimeMillis())
+            it.copy(micState = MicState.SILENT, micAvailable = true, transcriptSnippet = null)
         }
-        audioRecord?.stop()
-        mainHandler.post { createAndStartRecognizer(commandOnly = false) }
+        Log.i(TAG, "mic OPEN (continuous, explicit)")
+        startRecognizer(OPEN_SILENCE_MS)
     }
 
-    /** Resume KWS after a command capture finishes. Must run on the mic thread. */
-    private fun resumeKws() {
-        if (!isRunning) return
-        capturingCommand = false
-        awaitingCommand = false
-        audioRecord?.startRecording()
-        detector?.let { d ->
-            // Clear the old audio ring so the next inference doesn't see stale command audio.
-            if (d is TfliteWakeWordDetector) {
-                // The detector exposes a ring buffer; we can reset via init? Re-init is cheap.
-                d.init(ctx)
-            }
-        }
-        // voiceCommand is deliberately NOT cleared here. The observers in GhostService and
-        // MainActivity trigger on voiceCommandSeq, and StateFlow conflates: clearing the text in
-        // this window let them observe the new seq with the command already gone, so the guard
-        // failed and the spoken command was dropped with no log and no bubble. stopPipeline clears
-        // it when the mic actually shuts down.
-        ContextStore.update { it.copy(micState = MicState.SILENT, transcriptSnippet = null) }
-        micHandler.post(AudioLoop())
+    fun stop() {
+        mainHandler.post { enterOffMode() }
+        scope.cancel()
     }
 
-    /** SpeechRecognizer must be created and started on the main thread. */
-    private fun createAndStartRecognizer(commandOnly: Boolean) {
-        if (!isRunning) {
-            finishCommandCapture()
-            return
-        }
-        // Use the explicit AiAi/SODA on-device recognition service. The default system setting
-        // reverts to Google TTS on reboot, and `createOnDeviceSpeechRecognizer` has been observed
-        // to fail to bind with "not connected to the recognition service" on this device.
+    // ---------------------------------------------------------------- recognizer plumbing
+
+    private fun startRecognizer(silenceMs: Long) {
+        if (mode == MicMode.OFF) return
         @Suppress("DEPRECATION")
         val r = SpeechRecognizer.createSpeechRecognizer(ctx, AIAI_RECOGNIZER)
-        r.setRecognitionListener(CommandListener(commandOnly))
-        commandRecognizer = r
+        r.setRecognitionListener(CommandListener())
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, COMMAND_SILENCE_MS)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, COMMAND_SILENCE_MS / 2)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, silenceMs)
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                silenceMs / 2
+            )
         }
-        runCatching { r.startListening(intent) }
-            .onFailure {
-                Log.w(TAG, "startListening failed, will retry once", it)
-                mainHandler.postDelayed({ retryRecognizer(commandOnly, intent) }, commandToken, 500)
-            }
 
-        // Hard safety cap: force-stop the recognizer after COMMAND_MAX_MS / COMMAND_AWAIT_MS.
-        val timeout = if (commandOnly) COMMAND_AWAIT_MS else COMMAND_MAX_MS
-        mainHandler.postDelayed({ finishCommandCapture() }, commandToken, timeout)
+        // Publish the handle only once it is actually listening. Assigning before startListening is
+        // what made the old retry path dead code — its own null-check guard was always false.
+        val started = runCatching { r.startListening(intent) }
+            .onFailure {
+                Log.w(TAG, "startListening failed", it)
+                runCatching { r.destroy() }
+                scheduleRestart(OPEN_BACKOFF_MS)
+            }
+            .isSuccess
+        if (started) recognizer = r
     }
 
-    private fun retryRecognizer(commandOnly: Boolean, intent: Intent) {
-        if (!isRunning || commandRecognizer != null) {
-            finishCommandCapture()
-            return
-        }
-        @Suppress("DEPRECATION")
-        val r = SpeechRecognizer.createSpeechRecognizer(ctx, AIAI_RECOGNIZER)
-        r.setRecognitionListener(CommandListener(commandOnly))
-        commandRecognizer = r
-        runCatching { r.startListening(intent) }
-            .onFailure {
-                Log.w(TAG, "retry startListening also failed", it)
-                finishCommandCapture()
-            }
+    private fun scheduleRestart(delayMs: Long) {
+        if (mode != MicMode.OPEN) return
+        mainHandler.postDelayed({ if (mode == MicMode.OPEN) startRecognizer(OPEN_SILENCE_MS) }, token, delayMs)
     }
 
-    private fun finishCommandCapture() {
-        mainHandler.removeCallbacksAndMessages(commandToken)
-        val r = commandRecognizer
-        commandRecognizer = null
-        runCatching { r?.stopListening() }
+    private fun teardownRecognizer() {
+        val r = recognizer
+        recognizer = null
+        runCatching { r?.cancel() }
         runCatching { r?.destroy() }
-        micHandler.post { resumeKws() }
     }
 
-    private inner class CommandListener(private val commandOnly: Boolean) : RecognitionListener {
+    private inner class CommandListener : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
-            Log.d(TAG, "recognizer ready for speech")
-            ContextStore.update { it.copy(micState = MicState.SILENT) }
+            if (mode == MicMode.OPEN) ContextStore.update { it.copy(micState = MicState.SILENT) }
         }
 
         override fun onBeginningOfSpeech() {
-            Log.d(TAG, "recognizer beginning of speech")
             ContextStore.update { it.copy(micState = MicState.VOICE) }
         }
 
         override fun onRmsChanged(rms: Float) {
-            val now = System.currentTimeMillis()
-            if (now - lastRmsWriteMs < RMS_WRITE_THROTTLE_MS) return
-            lastRmsWriteMs = now
-            ContextStore.update { it.copy(audioLevelDb = rms) }
+            // Not written to ContextState.audioLevelDb. SpeechRecognizer's RMS is its own scale
+            // (roughly -2..10, against no documented reference), while that field is specified as
+            // dBFS and is rendered as `mic=voice(NdB)` into the [CONTEXT] block the model reads.
+            // With the AudioRecord path gone there is no honest dBFS source, so the field stays
+            // unset rather than carrying a number in the wrong units.
         }
 
         override fun onBufferReceived(buffer: ByteArray?) {}
+
         override fun onEndOfSpeech() {
-            Log.d(TAG, "recognizer end of speech")
             ContextStore.update { it.copy(micState = MicState.SILENT) }
         }
 
         override fun onError(error: Int) {
-            Log.d(TAG, "recognizer error: ${errorName(error)}")
-            if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                Log.w(TAG, "command recognizer error: ${errorName(error)}")
-            }
+            val name = errorName(error)
             if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                Log.w(TAG, "RECORD_AUDIO revoked — stopping the mic")
                 ContextStore.update { it.copy(micAvailable = false) }
-                isRunning = false
+                enterOffMode()
+                return
             }
-            finishCommandCapture()
+            // NO_MATCH and SPEECH_TIMEOUT are the normal outcome of silence, not failures.
+            val benign = error == SpeechRecognizer.ERROR_NO_MATCH ||
+                error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+            if (benign) Log.d(TAG, "recognizer: $name") else Log.w(TAG, "recognizer error: $name")
+
+            if (pttHeld) {
+                // Error mid-press: keep the press alive, the user is still holding the button.
+                Log.d(TAG, "push-to-talk: $name while held")
+                return
+            }
+            if (mode == MicMode.PUSH_TO_TALK) {
+                restoreAfterPtt()
+                return
+            }
+            teardownRecognizer()
+            if (benign) {
+                consecutiveErrors = 0
+                scheduleRestart(OPEN_RESTART_MS)
+            } else {
+                consecutiveErrors++
+                scheduleRestart(
+                    if (consecutiveErrors >= MAX_FAST_RESTARTS) OPEN_BACKOFF_MS else OPEN_RESTART_MS
+                )
+            }
         }
 
         override fun onResults(results: Bundle?) {
@@ -389,65 +345,44 @@ class MicListener(
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()
                 .orEmpty()
+                .trim()
+            consecutiveErrors = 0
             Log.d(TAG, "recognizer results: \"$text\"")
-            this@MicListener.handleCommandResult(text, commandOnly)
+
+            if (text.isNotBlank()) dispatchVoiceCommand(text)
+
+            if (pttHeld) {
+                // A result arrived before release (the recognizer endpointed on its own). Restart so
+                // the rest of the press is still captured.
+                startRecognizerAgainForPtt()
+                return
+            }
+            if (mode == MicMode.PUSH_TO_TALK) {
+                restoreAfterPtt()
+                return
+            }
+            teardownRecognizer()
+            scheduleRestart(OPEN_RESTART_MS)
         }
 
         override fun onPartialResults(partial: Bundle?) {}
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
 
-    /**
-     * Process the command recognizer result. Run on the main thread.
-     *
-     * If [commandOnly] is true, the result is treated as the command itself (no wake-word check).
-     * If false and the user only said the wake phrase, we open a second command-only recognizer.
-     */
-    private fun handleCommandResult(text: String, commandOnly: Boolean) {
-        val now = System.currentTimeMillis()
-        if (commandOnly || awaitingCommand) {
-            val cmd = stripWakeWord(text)
-            if (cmd.isNotBlank()) {
-                dispatchVoiceCommand(cmd, now)
-                finishCommandCapture()
-                return
-            }
-        }
-
-        when {
-            containsWakeWord(text) -> {
-                val cmd = stripWakeWord(text)
-                if (cmd.isBlank()) {
-                    // Bare wake word — listen for the follow-up command.
-                    awaitingCommand = true
-                    ContextStore.update {
-                        it.copy(micState = MicState.SILENT, transcriptSnippet = "Hey Ghost (awaiting command)")
-                    }
-                    // Cancel the first recognizer's timeout before starting the command-only one.
-                    mainHandler.removeCallbacksAndMessages(commandToken)
-                    // Restart a command-only recognizer on the same main thread path.
-                    val r = commandRecognizer
-                    commandRecognizer = null
-                    runCatching { r?.stopListening() }
-                    runCatching { r?.destroy() }
-                    mainHandler.postDelayed({ createAndStartRecognizer(commandOnly = true) }, commandToken, 200)
-                } else {
-                    dispatchVoiceCommand(cmd, now)
-                    finishCommandCapture()
-                }
-            }
-            text.isNotBlank() -> {
-                // Detector already confirmed the wake phrase; be forgiving if the recognizer dropped it.
-                val cmd = stripWakeWord(text)
-                if (cmd.isNotBlank()) dispatchVoiceCommand(cmd, now)
-                else Log.d(TAG, "ignored (no usable command): ${text.take(40)}")
-                finishCommandCapture()
-            }
-            else -> finishCommandCapture()
-        }
+    private fun startRecognizerAgainForPtt() {
+        teardownRecognizer()
+        mainHandler.post { if (pttHeld) startRecognizer(PTT_SILENCE_MS) }
     }
 
-    private fun dispatchVoiceCommand(cmd: String, now: Long) {
+    /**
+     * Publish a spoken utterance as a command for GhostService to run.
+     *
+     * No wake word is stripped and none is required: in push-to-talk the user is holding the button,
+     * and in open mode they have deliberately latched the mic. The wake word only ever existed to
+     * decide *whether* speech was meant for GHOST, and that decision is now made by hand.
+     */
+    private fun dispatchVoiceCommand(cmd: String) {
+        val now = System.currentTimeMillis()
         val truncated = cmd.take(200)
         ContextStore.update {
             it.copy(
@@ -459,47 +394,13 @@ class MicListener(
                 voiceResponse = null,
             )
         }
-        val r = retention
-        if (r != null) scope.launch { r.putTranscript("wake: $truncated", now) }
-        Log.i(TAG, "heard (wake): \"$truncated\" -> dispatched as voice command")
+        retention?.let { r -> scope.launch { r.putTranscript(truncated, now) } }
+        Log.i(TAG, "heard: \"$truncated\" -> dispatched as voice command")
     }
 
-    private fun stopPipeline(setOff: Boolean) {
-        if (!isRunning && !setOff) return
-        isRunning = false
-        capturingCommand = false
-        awaitingCommand = false
-        mainHandler.removeCallbacksAndMessages(commandToken)
-        runCatching { commandRecognizer?.stopListening() }
-        runCatching { commandRecognizer?.destroy() }
-        commandRecognizer = null
-        runCatching { audioRecord?.stop() }
-        runCatching { audioRecord?.release() }
-        audioRecord = null
-        runCatching { detector?.release() }
-        detector = null
-        ContextStore.update {
-            it.copy(
-                micState = if (setOff) MicState.OFF else MicState.UNKNOWN,
-                audioLevelDb = -1f,
-                transcriptSnippet = null,
-                micAvailable = true,
-                voiceCommand = null,
-                voiceResponse = null,
-            )
-        }
-        Log.i(TAG, if (setOff) "mic pipeline stopped (disabled by user)" else "mic pipeline stopped")
-    }
-
-    private fun hasPermission(perm: String): Boolean =
-        ContextCompat.checkSelfPermission(ctx, perm) == PackageManager.PERMISSION_GRANTED
-
-    private fun containsWakeWord(text: String): Boolean = text.contains("ghost", ignoreCase = true)
-
-    private fun stripWakeWord(text: String): String =
-        text.replaceFirst(Regex("(?i)(?:hey\\s+)?ghost"), "")
-            .replace(Regex("^[,.;:\\s]+"), "")
-            .trim()
+    private fun hasPermission(): Boolean =
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
 
     private fun errorName(error: Int): String = when (error) {
         SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "NETWORK_TIMEOUT"

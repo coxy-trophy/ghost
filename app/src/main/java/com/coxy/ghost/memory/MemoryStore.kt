@@ -31,6 +31,14 @@ class MemoryStore(context: Context) {
     suspend fun remember(role: String, content: String, source: String) {
         val cleaned = stripGhostPrefix(content)
         if (cleaned.isBlank()) return
+
+        // Never persist fact-extraction output as a conversational turn. See
+        // [looksLikeExtractionOutput] — this is the defect that made GHOST start calling Coxy
+        // "Ghost". Facts still reach the store through the source="fact" path below.
+        if (source != "fact" && looksLikeExtractionOutput(cleaned)) {
+            Log.w(TAG, "remember: dropping extraction-shaped $role turn (source=$source): ${cleaned.take(60)}")
+            return
+        }
         val emb = withContext(embedDispatcher) { Embedder.embed(cleaned) }
         if (emb == null) {
             Log.w(TAG, "remember: embed unavailable, storing without embedding (unrecallable)")
@@ -125,6 +133,27 @@ class MemoryStore(context: Context) {
         return changed
     }
 
+    /**
+     * One-time cleanup: delete conversational turns that are actually fact-extraction output.
+     *
+     * Rows with `source="fact"` are the legitimate extracted facts and are left alone; only turns
+     * that were stored as things GHOST *said* are removed. Without this, the rows already in the DB
+     * keep being recalled into `[MEMORY]` and keep re-teaching the behaviour, so fixing
+     * [remember] alone would not stop it.
+     */
+    suspend fun purgeExtractionArtifacts(): Int {
+        val rows = dao.all()
+        var removed = 0
+        for (e in rows) {
+            if (e.source != "fact" && looksLikeExtractionOutput(e.content)) {
+                dao.delete(e.id)
+                removed++
+            }
+        }
+        Log.i(TAG, "purgeExtractionArtifacts: removed $removed/${rows.size} rows")
+        return removed
+    }
+
     private fun recencyScore(nowMs: Long, tsMs: Long): Double {
         val ageDays = max(0.0, (nowMs - tsMs) / 86_400_000.0)
         return 1.0 / (1.0 + ageDays)
@@ -157,6 +186,34 @@ class MemoryStore(context: Context) {
 
         /** Weight on recallCount in the retention score. Mirrored in [MemoryDao.refreshImportance]. */
         private const val RECALL_WEIGHT = 0.15
+
+        /**
+         * True when [text] is fact-extraction output rather than something GHOST said to Coxy.
+         *
+         * `FactExtractor` drives the *same* single conversation context as normal chat — the engine
+         * exposes one context and giving it a second would need a `:lib` rebuild — so its
+         * `[FACT_EXTRACTION]` meta-turns become part of the model's own history. A 1.5B does not
+         * reliably honour the system prompt's "skip those"; it learns the pattern instead and starts
+         * answering ordinary questions with `FACT: GHOST did X`.
+         *
+         * That is the root of "the AI keeps calling me ghost". Those replies were stored as GHOST's
+         * conversational turns, so `[MEMORY]` fed them back as `you: FACT: GHOST can't hear the
+         * user clearly` — dozens of examples of GHOST referring to *itself* in the third person and
+         * to a participant named "GHOST". The role structure collapsed and the name landed on Coxy.
+         * Observed live: 11 of 37 assistant turns in the memory DB were extraction output, and three
+         * assistant turns were the literal text "Hey Ghost, what are you doing?".
+         *
+         * Blocking it at the storage boundary keeps the damage from compounding across restarts even
+         * when the model does emit it. Fact extraction is also off by default now
+         * ([com.coxy.ghost.GhostPrefs.factExtractionEnabledFlow]) so the pollution stops at source.
+         */
+        @JvmStatic
+        fun looksLikeExtractionOutput(text: String): Boolean {
+            val t = text.trimStart()
+            return t.startsWith("FACT:", ignoreCase = true) ||
+                t.startsWith("[FACT_EXTRACTION]", ignoreCase = true) ||
+                t.startsWith("NONE", ignoreCase = true) && t.length <= 6
+        }
 
         /** Strip a leading "Ghost:" (case-insensitive, optional trailing space) from assistant text. */
         @JvmStatic

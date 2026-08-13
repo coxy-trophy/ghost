@@ -9,6 +9,8 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.view.View
 import android.view.LayoutInflater
+import android.annotation.SuppressLint
+import android.view.MotionEvent
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -42,6 +44,7 @@ import com.coxy.ghost.memory.toMemoryBlock
 import com.coxy.ghost.perception.CameraCapture
 import com.coxy.ghost.perception.ContextStore
 import com.coxy.ghost.perception.GhostPrompts
+import com.coxy.ghost.perception.MicListener
 import com.coxy.ghost.perception.MicState
 import com.coxy.ghost.perception.VisionTrigger
 import com.coxy.ghost.perception.hasSignal
@@ -98,6 +101,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var liveState: TextView
     private lateinit var liveHeard: TextView
     private lateinit var liveReply: TextView
+    private lateinit var livePttHint: TextView
     private var pulse: android.animation.ValueAnimator? = null
 
     private val engine: InferenceEngine by lazy { AiChat.getInferenceEngine(applicationContext) }
@@ -187,6 +191,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.nav_system).setOnClickListener { showTab(Tab.SYSTEM) }
         findViewById<View>(R.id.live_exit).setOnClickListener { showTab(Tab.CHAT) }
         findViewById<View>(R.id.live_mute).setOnClickListener { toggleMic() }
+        livePttHint = findViewById(R.id.live_ptt_hint)
+        wirePushToTalk(findViewById(R.id.live_ptt), livePttHint)
         showTab(Tab.CHAT)
         // The typed path rewrites the last bubble on every token; the default change animation
         // would cross-fade it on each one, which reads as flicker while GHOST is talking.
@@ -430,11 +436,16 @@ class MainActivity : AppCompatActivity() {
             else -> com.coxy.ghost.ui.OrbView.OrbState.IDLE
         }
         orb.setOrbState(state)
+        // DORMANT has to mean dormant. Nothing listens ambiently any more, so the idle label
+        // distinguishes "the mic is latched open, speak whenever" from "nothing is listening" —
+        // otherwise the one screen whose job is to show whether GHOST can hear you would render
+        // both states identically.
         liveState.setText(
-            when (state) {
-                com.coxy.ghost.ui.OrbView.OrbState.THINKING -> R.string.ghost_live_thinking
-                com.coxy.ghost.ui.OrbView.OrbState.LISTENING -> R.string.ghost_live_listening
-                com.coxy.ghost.ui.OrbView.OrbState.SPEAKING -> R.string.ghost_live_speaking
+            when {
+                state == com.coxy.ghost.ui.OrbView.OrbState.THINKING -> R.string.ghost_live_thinking
+                state == com.coxy.ghost.ui.OrbView.OrbState.LISTENING -> R.string.ghost_live_listening
+                state == com.coxy.ghost.ui.OrbView.OrbState.SPEAKING -> R.string.ghost_live_speaking
+                MicListener.mode == MicListener.MicMode.OPEN -> R.string.ghost_live_open
                 else -> R.string.ghost_live_idle
             }
         )
@@ -464,13 +475,64 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Flip the "leave the mic on" latch.
+     *
+     * The service owns the write. This used to set the preference here *and* fire
+     * ACTION_TOGGLE_MIC, whose handler flipped it again — so the button relabelled itself and the
+     * mic never changed state. The desired value now travels with the intent.
+     */
     private fun toggleMic() {
         lifecycleScope.launch(Dispatchers.IO) {
             val next = !GhostPrefs.isMicEnabled(applicationContext)
-            GhostPrefs.setMicEnabled(applicationContext, next)
             withContext(Dispatchers.Main) { updateMicButton(next) }
-            // Tell the running service to start/stop the recognizer.
-            startServiceWithAction(GhostService.ACTION_TOGGLE_MIC)
+            startServiceWithIntent(
+                Intent(applicationContext, GhostService::class.java)
+                    .setAction(GhostService.ACTION_TOGGLE_MIC)
+                    .putExtra(GhostService.EXTRA_ENABLED, next)
+            )
+        }
+    }
+
+    private fun hasRecordAudioPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun requestRecordAudio() {
+        requestPerceptionPerms.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+    }
+
+    /**
+     * Hold-to-speak. The mic is open for exactly as long as the button is held — press opens the
+     * recognizer, release closes it and sends whatever was said.
+     *
+     * ACTION_UP alone is not enough: if the finger slides off the button, or the gesture is stolen
+     * by a parent view, only ACTION_CANCEL arrives. Missing it would leave the mic open with the
+     * user believing they had let go, which is the failure mode this whole redesign exists to end.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun wirePushToTalk(button: View, hint: android.widget.TextView) {
+        button.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (!hasRecordAudioPermission()) {
+                        hint.setText(R.string.ghost_live_mic_denied)
+                        requestRecordAudio()
+                        return@setOnTouchListener false
+                    }
+                    v.isPressed = true
+                    hint.setText(R.string.ghost_ptt_listening)
+                    startServiceWithAction(GhostService.ACTION_PTT_DOWN)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.isPressed = false
+                    hint.setText(R.string.ghost_ptt_hold)
+                    startServiceWithAction(GhostService.ACTION_PTT_UP)
+                    true
+                }
+                else -> false
+            }
         }
     }
 
