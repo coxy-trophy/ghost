@@ -17,6 +17,17 @@ interface WakeWordDetector {
      */
     fun process(samples: ShortArray): Float
 
+    /**
+     * Discard buffered audio without unloading the model, so the next [process] scores only audio
+     * captured after this call.
+     *
+     * Needed whenever the stream is interrupted — after a command capture, the ring still holds the
+     * second of audio that triggered it, and scoring that again would immediately re-fire. Before
+     * this existed, [MicListener] re-ran [init] to get the same effect, which tore down and rebuilt
+     * the TFLite interpreter (file stat + interpreter construction) on the mic thread on every wake.
+     */
+    fun reset()
+
     /** Release native/model resources. */
     fun release()
 }

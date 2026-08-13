@@ -3,6 +3,7 @@ package com.coxy.ghost.perception.wakeword
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,6 +55,46 @@ class WakeWordDetectorTest {
         }
         detector.release()
         assertTrue("negative clip falsely triggered: $maxProb", maxProb < 0.60f)
+    }
+
+    /**
+     * After [TfliteWakeWordDetector.reset] the ring must be empty, so audio fed before the reset
+     * cannot contribute to a score after it.
+     *
+     * This is what stops a double-trigger: `resumeKws()` hands the mic back to the detector with the
+     * second of audio that just triggered it still in the ring, and re-scoring that would fire
+     * again immediately. Before `reset()` existed, MicListener got the same effect by re-running
+     * `init()` — a full interpreter teardown and rebuild on the mic thread on every single wake.
+     */
+    @Test
+    fun reset_clears_buffered_audio_without_unloading_the_model() {
+        val detector = TfliteWakeWordDetector()
+        assertTrue("detector init failed", detector.init(targetCtx))
+
+        val samples = loadMono16kWav(testCtx, "hey_ghost_test.wav").padTo16000()
+        val chunkSize = 800
+        var maxProb = 0f
+        for (i in samples.indices step chunkSize) {
+            val chunk = samples.copyOfRange(i, (i + chunkSize).coerceAtMost(samples.size))
+            maxProb = maxOf(maxProb, detector.process(chunk))
+        }
+        assertTrue("positive clip should have scored high first: $maxProb", maxProb >= 0.75f)
+
+        detector.reset()
+
+        // One 50 ms chunk of silence. The ring needs a full second before it scores at all, so a
+        // correctly cleared ring returns exactly 0f rather than re-scoring the wake word.
+        val afterReset = detector.process(ShortArray(chunkSize))
+        assertEquals("reset must empty the ring, not just rewind it", 0f, afterReset, 1e-6f)
+
+        // The interpreter must still be loaded — reset is not release.
+        var reProb = 0f
+        for (i in samples.indices step chunkSize) {
+            val chunk = samples.copyOfRange(i, (i + chunkSize).coerceAtMost(samples.size))
+            reProb = maxOf(reProb, detector.process(chunk))
+        }
+        detector.release()
+        assertTrue("detector should still work after reset: $reProb", reProb >= 0.75f)
     }
 
     /** Pad a short array to one second at 16 kHz so the detector's 1-second window fills. */

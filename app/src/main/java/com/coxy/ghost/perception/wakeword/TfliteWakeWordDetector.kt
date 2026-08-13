@@ -122,6 +122,17 @@ class TfliteWakeWordDetector : WakeWordDetector {
         }
     }
 
+    /**
+     * Clear the audio ring only. The interpreter stays loaded — this runs after every command
+     * capture, and rebuilding the interpreter there (which is what re-calling [init] used to do)
+     * put a model load on the mic thread on every single wake.
+     */
+    override fun reset() {
+        ring.fill(0)
+        ringPos = 0
+        ringFilled = false
+    }
+
     @Synchronized
     override fun release() {
         runCatching { interpreter?.close() }

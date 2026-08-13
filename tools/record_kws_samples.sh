@@ -17,6 +17,8 @@
 # Output lands in tools/kws_data/real/{positives,negatives}/ , which train_hey_ghost_kws.py picks up.
 
 set -e
+# zsh aborts on a glob matching nothing; the first run of a label has no clips yet.
+setopt NULL_GLOB
 
 LABEL="${1:-positive}"
 COUNT="${2:-20}"
@@ -66,14 +68,18 @@ done
 
 echo
 echo "Pulling clips..."
-$ADB pull "$DEVICE_DIR" "$OUT_DIR/.pulled" >/dev/null 2>&1 || true
-if [ -d "$OUT_DIR/.pulled" ]; then
-  mv -f "$OUT_DIR/.pulled"/*.wav "$OUT_DIR"/ 2>/dev/null || true
-  rmdir "$OUT_DIR/.pulled" 2>/dev/null || true
-fi
+# Pull file-by-file. `adb pull <dir> <dest>` places the contents at <dest> only when <dest> does
+# not exist, and nests them under <dest>/kws when it does — so the directory form worked only as
+# long as the rmdir below had succeeded on the previous run.
+PULL_TMP=$(mktemp -d)
+for f in $($ADB shell "ls $DEVICE_DIR/*.wav 2>/dev/null" | tr -d '\r'); do
+  $ADB pull "$f" "$PULL_TMP/" >/dev/null 2>&1 || true
+done
+mv -f "$PULL_TMP"/*.wav "$OUT_DIR"/ 2>/dev/null || true
+rm -rf "$PULL_TMP"
 
 # Clear the device-side staging dir so the next run only pulls new clips.
 $ADB shell "rm -f $DEVICE_DIR/*.wav" >/dev/null 2>&1 || true
 
-echo "Total '$LABEL' clips on disk: $(ls -1 "$OUT_DIR"/*.wav 2>/dev/null | wc -l | tr -d ' ')"
+echo "Total '$LABEL' clips on disk: $(find "$OUT_DIR" -name '*.wav' | wc -l | tr -d ' ')"
 echo "Next: python3 tools/train_hey_ghost_kws.py --real-data tools/kws_data/real"
