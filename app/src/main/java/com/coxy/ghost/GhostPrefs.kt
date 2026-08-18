@@ -2,12 +2,14 @@ package com.coxy.ghost
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.coxy.ghost.cloud.CloudPromptFilter
+import com.coxy.ghost.perception.HomePoint
 import com.coxy.ghost.perception.wakeword.WakeTrigger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -48,6 +50,13 @@ object GhostPrefs {
     // data — see GHOST.md §8). ACTION_SET_KWS_TUNING writes these from a root shell in a second.
     private val KEY_KWS_THRESHOLD = floatPreferencesKey("kws_threshold")
     private val KEY_KWS_FRAMES = intPreferencesKey("kws_frames")
+
+    // Phase 4: the home point behind location=home/away. Only these three values are stored;
+    // ContextState never carries coordinates, so nothing that leaves the device can reconstruct
+    // them — see HomePoint's KDoc.
+    private val KEY_HOME_LAT = doublePreferencesKey("home_lat")
+    private val KEY_HOME_LON = doublePreferencesKey("home_lon")
+    private val KEY_HOME_RADIUS_M = floatPreferencesKey("home_radius_m")
 
     fun modelPathFlow(ctx: Context): Flow<String?> =
         ctx.ghostDataStore.data.map { it[KEY_MODEL_PATH] }
@@ -149,6 +158,43 @@ object GhostPrefs {
         ctx.ghostDataStore.edit { p ->
             if (threshold != null) p[KEY_KWS_THRESHOLD] = threshold.coerceIn(0.05f, 0.999f)
             if (frames != null) p[KEY_KWS_FRAMES] = frames.coerceIn(1, 40)
+        }
+    }
+
+    /**
+     * The stored home point, or null when Coxy has never set one — in which case `location=` stays
+     * `unknown`, exactly as it behaved before this existed.
+     *
+     * Both halves must be present to count. A store holding a latitude and no longitude is not a
+     * place, and silently treating the missing half as 0.0 would put home in the Gulf of Guinea.
+     */
+    suspend fun homePoint(ctx: Context): HomePoint? {
+        val prefs = ctx.ghostDataStore.data.first()
+        val lat = prefs[KEY_HOME_LAT] ?: return null
+        val lon = prefs[KEY_HOME_LON] ?: return null
+        val radius = (prefs[KEY_HOME_RADIUS_M] ?: HomePoint.DEFAULT_RADIUS_M)
+            .coerceIn(HomePoint.MIN_RADIUS_M, HomePoint.MAX_RADIUS_M)
+        return HomePoint(lat, lon, radius)
+    }
+
+    /**
+     * Store or clear the home point. Reachable from a root shell via `ACTION_SET_HOME`, so the
+     * radius is clamped on write as well as on read.
+     */
+    suspend fun setHomePoint(ctx: Context, lat: Double?, lon: Double?, radiusM: Float?) {
+        ctx.ghostDataStore.edit { p ->
+            if (lat == null || lon == null) {
+                p.remove(KEY_HOME_LAT)
+                p.remove(KEY_HOME_LON)
+                p.remove(KEY_HOME_RADIUS_M)
+            } else {
+                p[KEY_HOME_LAT] = lat
+                p[KEY_HOME_LON] = lon
+                if (radiusM != null) {
+                    p[KEY_HOME_RADIUS_M] =
+                        radiusM.coerceIn(HomePoint.MIN_RADIUS_M, HomePoint.MAX_RADIUS_M)
+                }
+            }
         }
     }
 }

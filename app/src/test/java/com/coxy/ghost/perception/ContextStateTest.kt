@@ -237,6 +237,15 @@ class ContextStateTest {
             "stale pick-up" to ContextState(lastPickUpMs = 1L),
             "face down in a pocket" to
                 ContextState(posture = Posture.FACE_DOWN, inPocket = true, motion = MotionState.STATIONARY),
+            "still for a while" to ContextState(
+                activity = Activity.STILL,
+                activitySinceMs = System.currentTimeMillis() - 42 * 60_000L,
+            ),
+            "confidence with no activity" to ContextState(activityConfidence = 85),
+            "dwell with no activity" to
+                ContextState(activitySinceMs = System.currentTimeMillis() - 42 * 60_000L),
+            "at home" to ContextState(locationBucket = LocationBucket.HOME),
+            "away" to ContextState(locationBucket = LocationBucket.AWAY),
         )
         for ((name, state) in states) {
             assertEquals(
@@ -245,6 +254,79 @@ class ContextStateTest {
                 state.hasSignal(),
             )
         }
+    }
+
+    // --- activity dwell ---
+    // "still" and "still for forty minutes" are different facts, and only the first was reachable.
+
+    @Test
+    fun dwellIsOmittedUntilItIsWorthSaying() {
+        val now = System.currentTimeMillis()
+        // Never known.
+        assertFalse(ContextState(activity = Activity.STILL).toPromptBlock().contains("m)"))
+        // Known, but only just — every state has just started at some point, and "0m" is noise.
+        assertEquals(
+            "[CONTEXT activity=still location=unknown light=unknown proximity=unknown]",
+            ContextState(activity = Activity.STILL, activitySinceMs = now - 30_000L).toPromptBlock(),
+        )
+    }
+
+    @Test
+    fun dwellReadsInMinutesThenHours() {
+        val now = System.currentTimeMillis()
+        fun label(heldMs: Long) =
+            ContextState(activity = Activity.STILL, activitySinceMs = now - heldMs).toPromptBlock()
+
+        assertTrue(label(60_000L).contains("activity=still(1m)"))
+        assertTrue(label(42 * 60_000L).contains("activity=still(42m)"))
+        assertTrue("a round hour drops the minutes", label(60 * 60_000L).contains("activity=still(1h)"))
+        assertTrue(label(135 * 60_000L).contains("activity=still(2h15m)"))
+    }
+
+    @Test
+    fun dwellSitsAlongsideConfidence() {
+        val block = ContextState(
+            activity = Activity.STILL,
+            activityConfidence = 100,
+            activitySinceMs = System.currentTimeMillis() - 42 * 60_000L,
+        ).toPromptBlock()
+        assertTrue(block, block.contains("activity=still(100%,42m)"))
+    }
+
+    @Test
+    fun anUnknownActivityTakesNoQualifiers() {
+        // Both would be nonsense, and a qualifier here would also break the hasSignal invariant:
+        // the clause would read as informative while renderClauses correctly says it is not.
+        val block = ContextState(
+            activityConfidence = 85,
+            activitySinceMs = System.currentTimeMillis() - 42 * 60_000L,
+        ).toPromptBlock()
+        assertTrue(block, block.contains("activity=unknown "))
+        assertFalse(block, block.contains("85%"))
+        assertFalse(block, block.contains("42m"))
+    }
+
+    @Test
+    fun dwellClockRestartsOnlyWhenTheActivityActuallyChanges() {
+        // The stamp lives in ContextStore.update so no writer can forget it; this is the pure half.
+        val walking = ContextState(activity = Activity.WALKING, activitySinceMs = 1_000L)
+
+        val sameActivityNewReading = walking.copy(activityConfidence = 90).stampDwell(walking)
+        assertEquals(
+            "a fresh reading of the same activity must not restart the clock",
+            1_000L,
+            sameActivityNewReading.activitySinceMs,
+        )
+
+        val changed = walking.copy(activity = Activity.STILL).stampDwell(walking)
+        assertTrue("a real change restarts the clock", changed.activitySinceMs > 1_000L)
+
+        val wentUnknown = walking.copy(activity = Activity.UNKNOWN).stampDwell(walking)
+        assertEquals(
+            "losing the activity clears the clock rather than dating it",
+            0L,
+            wentUnknown.activitySinceMs,
+        )
     }
 
     /**

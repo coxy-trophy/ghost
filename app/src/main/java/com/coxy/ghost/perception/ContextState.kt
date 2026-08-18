@@ -15,6 +15,11 @@ package com.coxy.ghost.perception
 data class ContextState(
     val activity: Activity = Activity.UNKNOWN,
     val activityConfidence: Int = 0,
+    /**
+     * When [activity] last changed, or 0 when it has never been known. Stamped centrally by
+     * [ContextStore.update] so no writer has to remember to — see [stampDwell].
+     */
+    val activitySinceMs: Long = 0L,
     val locationBucket: LocationBucket = LocationBucket.UNKNOWN,
     val speedKmh: Float = 0f,
     val lightBucket: LightBucket = LightBucket.UNKNOWN,
@@ -80,7 +85,11 @@ enum class CallState { IDLE, RINGING, IN_CALL, UNKNOWN }
 
 enum class Activity { STILL, ON_FOOT, WALKING, RUNNING, IN_VEHICLE, ON_BICYCLE, TILTING, UNKNOWN }
 
-/** HOME/AWAY require a persisted home point (deferred past Phase 4); UNKNOWN until then. */
+/**
+ * HOME/AWAY are bucketed against the stored [HomePoint]; UNKNOWN until Coxy sets one, and also
+ * whenever the fix is too vague to answer the question honestly. Coordinates never reach this
+ * class — the bucket is the only thing that leaves the perception layer.
+ */
 enum class LocationBucket { HOME, AWAY, UNKNOWN }
 
 /** Lux thresholds: DARK<10, DIM 10-50, NORMAL 50-1000, BRIGHT>1000. */
@@ -134,6 +143,64 @@ private class ContextClauses {
 }
 
 /**
+ * Stamp [ContextState.activitySinceMs] when the activity bucket changes.
+ *
+ * Called by [ContextStore.update] on every write rather than by each writer, because there are
+ * several — the GMS activity-recognition broadcast, the speed-based backstop in
+ * [PerceptionManager.handleLocation], and the reset in `stop()` — and a dwell clock that one of them
+ * forgets to stamp is worse than no dwell clock at all: it would report a duration that silently
+ * belongs to a previous state.
+ *
+ * `update`'s transform can re-run under CAS contention. Re-running this is harmless — reading the
+ * clock is idempotent for the purpose, and the second read differs by microseconds.
+ */
+internal fun ContextState.stampDwell(previous: ContextState): ContextState = when {
+    activity == previous.activity -> this
+    activity == Activity.UNKNOWN -> copy(activitySinceMs = 0L)
+    else -> copy(activitySinceMs = System.currentTimeMillis())
+}
+
+/**
+ * How long the current activity has held, as a compact label, or null when that is not worth
+ * saying.
+ *
+ * Below [DWELL_MIN_MS] there is nothing to report — every state has just started at some point, and
+ * "0m" is noise on a block that rides every prompt. The unit stays coarse for the same reason:
+ * "40m" and "2h15m" answer "have I been sitting here too long", which is the question this exists
+ * for, and seconds would only cost tokens.
+ */
+private fun dwellLabel(sinceMs: Long, now: Long): String? {
+    if (sinceMs <= 0L) return null
+    val heldMs = now - sinceMs
+    if (heldMs < DWELL_MIN_MS) return null
+    val minutes = heldMs / 60_000L
+    if (minutes < 60L) return "${minutes}m"
+    val hours = minutes / 60L
+    val remainder = minutes % 60L
+    return if (remainder == 0L) "${hours}h" else "${hours}h${remainder}m"
+}
+
+/** Below a minute, a dwell time is not information. */
+private const val DWELL_MIN_MS = 60_000L
+
+/**
+ * `still`, `still(100%)`, `still(42m)` or `still(100%,42m)` — the qualifiers are whichever of
+ * confidence and dwell actually have something to say. Shared by the prompt block and the status
+ * line so the two cannot describe the same activity differently.
+ */
+private fun ContextState.activityLabel(now: Long): String {
+    // An unknown activity takes no qualifiers. `unknown(85%)` is nonsense on its face, and it would
+    // also break the hasSignal invariant: the clause would look informative to anything reading the
+    // rendered string while renderClauses correctly marks it as carrying nothing.
+    if (activity == Activity.UNKNOWN) return Activity.UNKNOWN.name.lowercase()
+    val qualifiers = mutableListOf<String>()
+    if (activityConfidence > 0) qualifiers += "$activityConfidence%"
+    dwellLabel(activitySinceMs, now)?.let { qualifiers += it }
+    return activity.name.lowercase() +
+        if (qualifiers.isEmpty()) "" else "(${qualifiers.joinToString(",")})"
+}
+
+/**
  * Render every clause once, in the order the model reads them.
  *
  * The governing rule for everything below the first four: silent unless it carries information. The
@@ -142,11 +209,9 @@ private class ContextClauses {
  */
 private fun ContextState.renderClauses(): ContextClauses {
     val c = ContextClauses()
+    val now = System.currentTimeMillis()
 
-    c.add(
-        "activity=${activity.name.lowercase()}" + if (activityConfidence > 0) "($activityConfidence%)" else "",
-        activity != Activity.UNKNOWN,
-    )
+    c.add("activity=${activityLabel(now)}", activity != Activity.UNKNOWN)
     c.add("location=${locationBucket.name.lowercase()}", locationBucket != LocationBucket.UNKNOWN)
     if (speedKmh > 0f) c.add("speed=${"%.1f".format(speedKmh)}km/h")
     c.add(
@@ -184,7 +249,7 @@ private fun ContextState.renderClauses(): ContextClauses {
     heading?.let { c.add("heading=$it") }
     if (motion != MotionState.UNKNOWN) c.add("motion=${motion.name.lowercase()}")
     // Only surface a pick-up while it is still "just happened" — a stale timestamp is noise.
-    if (lastPickUpMs > 0L && System.currentTimeMillis() - lastPickUpMs < PICK_UP_RECENT_MS) {
+    if (lastPickUpMs > 0L && now - lastPickUpMs < PICK_UP_RECENT_MS) {
         c.add("just_picked_up")
     }
     if (nearbyCount > 0) {
@@ -228,8 +293,7 @@ private const val PICK_UP_RECENT_MS = 90_000L
 fun ContextState.toStatusLine(): String {
     if (timestampMs == 0L && lastTranscriptMs == 0L && lastFrameMs == 0L) return "Perception: idle"
     val s = StringBuilder("Perception: ")
-    s.append(activity.name.lowercase())
-    if (activityConfidence > 0) s.append("($activityConfidence%)")
+    s.append(activityLabel(System.currentTimeMillis()))
     s.append(' ').append(locationBucket.name.lowercase())
     if (speedKmh > 0f) s.append(" ").append("%.1f".format(speedKmh)).append("km/h")
     s.append(' ').append(lightBucket.name.lowercase())

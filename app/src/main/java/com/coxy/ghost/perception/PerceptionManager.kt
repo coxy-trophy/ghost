@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.coxy.ghost.GhostPrefs
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityRecognitionResult
@@ -90,6 +91,26 @@ class PerceptionManager(private val ctx: Context) {
 
     private val sensorManager =
         ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+
+    /**
+     * The home point behind `location=home/away`, loaded from DataStore at [start] and refreshed by
+     * [reloadHome] after `ACTION_SET_HOME`. Null until Coxy sets one, which keeps the bucket
+     * `unknown` exactly as it behaved before this existed.
+     */
+    @Volatile
+    private var homePoint: HomePoint? = null
+
+    /**
+     * The last raw fix, kept here and **only** here.
+     *
+     * `ACTION_SET_HOME` with no coordinates means "home is where I am standing", which needs the
+     * position — but coordinates deliberately never enter [ContextState], because everything in
+     * there is renderable into a prompt and can leave the device. Holding the fix on the manager
+     * keeps the raw value inside the perception layer and lets the bucket be the only thing that
+     * escapes. Cleared on [stop].
+     */
+    @Volatile
+    private var lastFix: Triple<Double, Double, Float>? = null
 
     // GMS clients (nullable when GMS unavailable / degraded).
     private var activityClient: com.google.android.gms.location.ActivityRecognitionClient? = null
@@ -281,6 +302,8 @@ class PerceptionManager(private val ctx: Context) {
     }
 
     fun start() {
+        // Load the home point before the first fix can arrive; handleLocation reads it per update.
+        scope.launch { homePoint = GhostPrefs.homePoint(ctx) }
         if (isRunning) return
         isRunning = true
         Log.i(TAG, "starting perception")
@@ -495,7 +518,10 @@ class PerceptionManager(private val ctx: Context) {
 
     private fun handleLocation(loc: Location) {
         val speedKmh = if (loc.hasSpeed()) loc.speed * 3.6f else 0f
-        // Home/away learning is deferred past Phase 4; report UNKNOWN for the bucket.
+        val accuracyM = if (loc.hasAccuracy()) loc.accuracy else -1f
+        lastFix = Triple(loc.latitude, loc.longitude, accuracyM)
+        // The raw fix stops here. Only the bucket goes into ContextState — see HomePoint's KDoc.
+        val bucket = HomePoint.bucketFor(homePoint, loc.latitude, loc.longitude, accuracyM)
         update { st ->
             // Speed-based activity inference — a backstop when AR hasn't reported (or is delayed).
             // Only fills UNKNOWN/STILL; never overrides a confident AR reading (WALKING/RUNNING/
@@ -508,7 +534,7 @@ class PerceptionManager(private val ctx: Context) {
             }
             val conf = if (activity != st.activity && activity != Activity.UNKNOWN) 0 else st.activityConfidence
             st.copy(
-                locationBucket = LocationBucket.UNKNOWN,
+                locationBucket = bucket,
                 speedKmh = speedKmh,
                 activity = activity,
                 activityConfidence = conf,
@@ -570,7 +596,33 @@ class PerceptionManager(private val ctx: Context) {
             )
         }
         vendorPostureSeen = false
+        lastFix = null
     }
+
+    // --- home point ---
+
+    /**
+     * Re-read the stored home point and re-bucket the last known fix against it, so setting home
+     * takes effect on the next prompt rather than on the next GPS update (which is up to a minute
+     * away, and never arrives at all if the phone is sitting still indoors).
+     */
+    fun reloadHome() {
+        scope.launch {
+            homePoint = GhostPrefs.homePoint(ctx)
+            val fix = lastFix
+            if (fix != null) {
+                val bucket = HomePoint.bucketFor(homePoint, fix.first, fix.second, fix.third)
+                update { it.copy(locationBucket = bucket) }
+            }
+            Log.i(TAG, "home point reloaded (set=${homePoint != null} bucket-from-last-fix=${fix != null})")
+        }
+    }
+
+    /**
+     * The last raw fix, for `ACTION_SET_HOME` with no explicit coordinates. Null when no fix has
+     * arrived yet this session — the caller must say so rather than storing a (0, 0) home.
+     */
+    fun lastKnownFix(): Pair<Double, Double>? = lastFix?.let { it.first to it.second }
 
     // --- helpers ---
 

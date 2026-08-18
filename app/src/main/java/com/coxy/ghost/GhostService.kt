@@ -30,6 +30,7 @@ import com.coxy.ghost.memory.MemoryStore.Companion.stripGhostPrefix
 import com.coxy.ghost.memory.toMemoryBlock
 import com.coxy.ghost.perception.CameraCapture
 import com.coxy.ghost.perception.ContextStore
+import com.coxy.ghost.perception.HomePoint
 import com.coxy.ghost.perception.VisionTrigger
 import com.coxy.ghost.perception.GhostPrompts
 import com.coxy.ghost.perception.MicListener
@@ -41,7 +42,6 @@ import com.coxy.ghost.perception.BleScanner
 import com.coxy.ghost.perception.PerceptionManager
 import com.coxy.ghost.perception.RadioWatcher
 import com.coxy.ghost.perception.RetentionManager
-import com.coxy.ghost.perception.toPromptBlock
 import com.coxy.ghost.action.ActionExecutor
 import com.coxy.ghost.action.ActionRunner
 import com.coxy.ghost.cloud.CloudRouter
@@ -381,6 +381,46 @@ class GhostService : LifecycleService() {
                     GhostPrefs.setKwsTuning(applicationContext, threshold, frames)
                 }
             }
+            ACTION_SET_HOME -> {
+                // `location=home/away` needs a point to measure from. With --ed lat/--ed lon this
+                // stores that point; with neither, it stores wherever the last GPS fix put the
+                // phone, which is the "I am standing in it" case. `--ez clear true` removes it and
+                // location= goes back to unknown.
+                //
+                // The coordinates are deliberately never logged. Everything else about the home
+                // point is safe to say out loud; the point itself is the one value in the whole
+                // perception layer worth keeping out of logcat.
+                val clear = intent.getBooleanExtra(EXTRA_CLEAR, false)
+                val radius = if (intent.hasExtra(EXTRA_RADIUS)) {
+                    intent.getFloatExtra(EXTRA_RADIUS, HomePoint.DEFAULT_RADIUS_M)
+                } else null
+                val explicit = if (intent.hasExtra(EXTRA_LAT) && intent.hasExtra(EXTRA_LON)) {
+                    intent.getDoubleExtra(EXTRA_LAT, 0.0) to intent.getDoubleExtra(EXTRA_LON, 0.0)
+                } else null
+                lifecycleScope.launch {
+                    if (clear) {
+                        GhostPrefs.setHomePoint(applicationContext, null, null, null)
+                        Log.i(TAG, "home point cleared — location= returns to unknown")
+                    } else {
+                        val point = explicit ?: perception?.lastKnownFix()
+                        if (point == null) {
+                            Log.w(
+                                TAG,
+                                "SET_HOME: no coordinates given and no GPS fix yet — nothing stored. " +
+                                    "Pass --ed lat/--ed lon, or wait for a fix and retry."
+                            )
+                        } else {
+                            GhostPrefs.setHomePoint(applicationContext, point.first, point.second, radius)
+                            Log.i(
+                                TAG,
+                                "home point stored (source=${if (explicit != null) "explicit" else "last fix"} " +
+                                    "radius=${radius ?: HomePoint.DEFAULT_RADIUS_M}m)"
+                            )
+                        }
+                    }
+                    perception?.reloadHome()
+                }
+            }
             ACTION_KILL -> {
                 // Independent kill switch (D3, §8): stop everything + wipe retention + stopSelf.
                 // setEnabled(false) is also persisted by KillSwitch.killGhost (the caller), but we
@@ -663,6 +703,7 @@ class GhostService : LifecycleService() {
         const val ACTION_SCORE_KWS = "com.coxy.ghost.action.SCORE_KWS"
         const val ACTION_SET_KWS_TUNING = "com.coxy.ghost.action.SET_KWS_TUNING"
         const val ACTION_SET_MODEL_PATH = "com.coxy.ghost.action.SET_MODEL_PATH"
+        const val ACTION_SET_HOME = "com.coxy.ghost.action.SET_HOME"
         const val EXTRA_FACING = "facing"
         const val EXTRA_PATH = "path"
         const val EXTRA_LABEL = "label"
@@ -670,6 +711,10 @@ class GhostService : LifecycleService() {
         const val EXTRA_THRESHOLD = "threshold"
         const val EXTRA_FRAMES = "frames"
         const val EXTRA_ENABLED = "enabled"
+        const val EXTRA_LAT = "lat"
+        const val EXTRA_LON = "lon"
+        const val EXTRA_RADIUS = "radius"
+        const val EXTRA_CLEAR = "clear"
 
         /** Time to let MicListener's AudioRecord/recognizer release the mic before we grab it. */
         private const val KWS_MIC_RELEASE_MS = 600L

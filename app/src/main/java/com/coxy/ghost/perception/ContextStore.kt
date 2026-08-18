@@ -29,9 +29,14 @@ object ContextStore {
      * — sensors, mic, camera, main, and the service coroutine streaming `voiceResponse` once per
      * token — so concurrent writers silently lost each other's fields. The transform can therefore
      * run more than once: keep it pure, no side effects.
+     *
+     * [ContextState.stampDwell] runs after every transform so the activity dwell clock is stamped
+     * centrally. Doing it here rather than in each writer is deliberate: a writer that changed the
+     * activity and forgot to stamp would leave a duration attached to the wrong state, which reads
+     * as a confident wrong answer rather than a missing one.
      */
     fun update(transform: (ContextState) -> ContextState) {
-        _state.update(transform)
+        _state.update { previous -> transform(previous).stampDwell(previous) }
     }
 
     /** Reset to idle (timestampMs=0 → "Perception: idle"). Called when all perception stops. */
