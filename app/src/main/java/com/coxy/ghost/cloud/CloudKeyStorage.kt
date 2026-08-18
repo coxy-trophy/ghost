@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.coxy.ghost.BuildConfig
 
 /**
  * Secure storage for the Ollama Cloud API key (Phase 8).
@@ -59,10 +60,41 @@ object CloudKeyStorage {
             cached ?: (encryptedPrefs(context) ?: plainPrefs(context)).also { cached = it }
         }
 
+    /**
+     * The stored key, or the one baked into the build if nothing is stored.
+     *
+     * The baked-in key exists because a priv-app deploy can reset `/data/data/com.coxy.ghost`
+     * wholesale (GHOST.md §8, cause still unknown), taking `shared_prefs/` and the key with it.
+     * Every such wipe silently demoted GHOST to the local 1.5B until someone noticed and typed the
+     * key back in — the 2026-08-12 wipe went unnoticed for days exactly that way. Falling back to
+     * [BuildConfig.OLLAMA_API_KEY] makes the cloud brain survive a wipe with no manual step.
+     *
+     * Stored wins over baked-in, so a key entered in the Cloud screen still overrides the build
+     * without a rebuild.
+     */
     fun getKey(context: Context): String? {
-        val value = prefs(context).getString(KEY_API_KEY, null)
-        return if (value.isNullOrBlank()) null else value
+        val stored = prefs(context).getString(KEY_API_KEY, null)
+        if (!stored.isNullOrBlank()) return stored
+
+        val baked = BuildConfig.OLLAMA_API_KEY
+        if (baked.isNotBlank()) {
+            if (!loggedBakedUse) {
+                loggedBakedUse = true
+                Log.i(TAG, "no stored key — using the key baked in at build time")
+            }
+            return baked
+        }
+        return null
     }
+
+    /** Log the fallback once per process rather than on every cloud query. */
+    @Volatile
+    private var loggedBakedUse: Boolean = false
+
+    /** True when the key in use came from the build rather than from storage. */
+    fun isUsingBakedKey(context: Context): Boolean =
+        prefs(context).getString(KEY_API_KEY, null).isNullOrBlank() &&
+            BuildConfig.OLLAMA_API_KEY.isNotBlank()
 
     fun setKey(context: Context, key: String?) {
         prefs(context).edit().apply {

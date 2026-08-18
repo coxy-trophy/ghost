@@ -26,6 +26,11 @@ render.experimental.xml
 *.jks
 *.keystore
 
+# Baked-in secrets. keys.properties holds OLLAMA_API_KEY and is read by app/build.gradle.kts into
+# a BuildConfig field, so the cloud brain survives a priv-app deploy wiping /data/data without
+# anyone re-entering it by hand. Never commit this. keys.properties.example is the template.
+keys.properties
+
 # Google Services (e.g. APIs or Firebase)
 google-services.json
 

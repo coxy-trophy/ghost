@@ -1,0 +1,10 @@
+# Copy to keys.properties (gitignored) and fill in. Read by app/build.gradle.kts into
+# BuildConfig.OLLAMA_API_KEY, so the key is baked into the APK and survives a deploy that resets
+# /data/data/com.coxy.ghost.
+#
+# A key entered in the app's Cloud screen takes precedence over this one, so rotating the key does
+# not require a rebuild — but the next wipe falls back to whatever is baked in here, so update it
+# when you rotate.
+#
+# Get one from https://ollama.com/settings/keys
+OLLAMA_API_KEY=
