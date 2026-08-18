@@ -93,77 +93,133 @@ enum class Proximity { NEAR, FAR, UNKNOWN }
 enum class MicState { SILENT, VOICE, UNKNOWN, OFF }
 
 /**
- * True when perception has produced something worth spending tokens on.
+ * One rendering pass over the state: the `[CONTEXT ...]` clauses, and whether any of them actually
+ * told the model something.
  *
- * [toPromptBlock] always returns a populated `[CONTEXT ...]` line — activity, location, light and
- * proximity are unconditional — so without this guard an idle device prepends four "unknown" fields
- * to every single prompt.
+ * [hasSignal] and [toPromptBlock] are both derived from this, which is the whole point. They used
+ * to be two independent lists of conditions, and Phase 4.5 drifted them apart in both directions:
+ *
+ *  - `hasSignal` counted `callState != UNKNOWN`, `nfcEnabled != null`, `inPocket != null` and
+ *    `nearbyCount >= 0`, while the block deliberately prints call state only when it means "do not
+ *    speak", NFC only when on, pocket only when true and nearby only above zero. `RadioWatcher` sets
+ *    call state to IDLE and NFC to true/false the moment it starts, so from then on an idle phone
+ *    claimed signal and then rendered nothing but the four unconditional unknowns — exactly the
+ *    waste `hasSignal` was added to prevent.
+ *  - In the other direction it dropped real context on the floor. `gms:off`, `just_picked_up`, a
+ *    speed, a step rate, a weak signal or a transcript with no timestamp each render a clause that
+ *    `hasSignal` did not recognise, so with nothing else sensed the whole block was suppressed and
+ *    the model never saw them.
+ *
+ * Neither half was untested — the omissions are pinned field by field, and so was the signal set.
+ * What had no test was the relationship between them. Deriving both from one pass makes that
+ * invariant structural rather than remembered: the block is worth sending exactly when it has
+ * something to say.
  */
-fun ContextState.hasSignal(): Boolean =
-    timestampMs > 0L || lastTranscriptMs > 0L || lastFrameMs > 0L ||
-        micState != MicState.UNKNOWN || !micAvailable || !cameraAvailable ||
-        // Phase 4.5 sources that do not stamp timestampMs (they are not sensor-clocked).
-        posture != Posture.UNKNOWN || inPocket != null || heading != null ||
-        motion != MotionState.UNKNOWN || nearbyCount >= 0 ||
-        callState != CallState.UNKNOWN || nfcEnabled != null
+private class ContextClauses {
+    val parts = mutableListOf<String>()
+
+    /** True once a clause has been added that narrows anything down. */
+    var carriesInfo = false
+        private set
+
+    /**
+     * Add a clause. [informative] is false only for the four fields that render unconditionally —
+     * activity, location, light, proximity — while holding their `unknown` value: they keep the
+     * block's shape stable but tell the model nothing it did not already assume.
+     */
+    fun add(clause: String, informative: Boolean = true) {
+        parts += clause
+        if (informative) carriesInfo = true
+    }
+}
+
+/**
+ * Render every clause once, in the order the model reads them.
+ *
+ * The governing rule for everything below the first four: silent unless it carries information. The
+ * block rides on EVERY prompt into a 1.5B model with an 8k window, so an idle phone must cost no
+ * more tokens than it did before a sense was added. `ContextStateTest` pins that rule field by field.
+ */
+private fun ContextState.renderClauses(): ContextClauses {
+    val c = ContextClauses()
+
+    c.add(
+        "activity=${activity.name.lowercase()}" + if (activityConfidence > 0) "($activityConfidence%)" else "",
+        activity != Activity.UNKNOWN,
+    )
+    c.add("location=${locationBucket.name.lowercase()}", locationBucket != LocationBucket.UNKNOWN)
+    if (speedKmh > 0f) c.add("speed=${"%.1f".format(speedKmh)}km/h")
+    c.add(
+        "light=${lightBucket.name.lowercase()}" + if (lightLux >= 0f) "(${lightLux.toInt()}lx)" else "",
+        lightBucket != LightBucket.UNKNOWN,
+    )
+    c.add("proximity=${proximity.name.lowercase()}", proximity != Proximity.UNKNOWN)
+    if (stepRatePerMin > 0) c.add("steps=${stepRatePerMin}/min")
+
+    // Mic: voice/silent + level, or a single "GHOST cannot hear right now".
+    // `mic:off` now also covers an unavailable mic. It used to render only for the user-disabled
+    // case, while `micAvailable = false` counted as signal and printed nothing — so "the mic is
+    // broken" reached hasSignal() and never reached the model. This mirrors `camera:off` below and
+    // reuses vocabulary the system prompt already describes. Unavailable wins over a stale VOICE.
+    if (!micAvailable || micState == MicState.OFF) {
+        c.add("mic:off")
+    } else if (micState != MicState.UNKNOWN) {
+        c.add("mic=${micState.name.lowercase()}" + if (audioLevelDb > -100f) "(${audioLevelDb.toInt()}dB)" else "")
+    }
+    transcriptSnippet?.takeIf { it.isNotBlank() }?.let {
+        c.add("heard=\"${truncateWords(it, 15)}\"")
+    }
+    // Camera: metadata only — the model cannot see the frame, just knows one was captured.
+    if (lastFrameMs > 0L) {
+        val br = if (sceneBrightness >= 0f) sceneBrightness.toInt() else -1
+        c.add("camera=captured(${lastFrameFacing ?: "unknown"},br $br)")
+    } else if (!cameraAvailable) {
+        c.add("camera:off")
+    }
+    if (!gmsAvailable) c.add("gms:off")
+
+    // --- Phase 4.5 additions ---
+    if (posture != Posture.UNKNOWN) c.add("posture=${posture.name.lowercase()}")
+    if (inPocket == true) c.add("pocket=yes")
+    heading?.let { c.add("heading=$it") }
+    if (motion != MotionState.UNKNOWN) c.add("motion=${motion.name.lowercase()}")
+    // Only surface a pick-up while it is still "just happened" — a stale timestamp is noise.
+    if (lastPickUpMs > 0L && System.currentTimeMillis() - lastPickUpMs < PICK_UP_RECENT_MS) {
+        c.add("just_picked_up")
+    }
+    if (nearbyCount > 0) {
+        c.add("nearby=$nearbyCount")
+        nearbyKnown?.takeIf { it.isNotBlank() }?.let { c.add("known=\"${truncateWords(it, 8)}\"") }
+    }
+    // Call state matters because it means "do not start talking"; IDLE is the boring default.
+    if (callState == CallState.RINGING || callState == CallState.IN_CALL) {
+        c.add("call=${callState.name.lowercase()}")
+    }
+    // Network only when it is bad enough to matter (cloud calls will struggle) or during a call.
+    if (signalLevel in 0..1 || (signalLevel >= 0 && callState == CallState.IN_CALL)) {
+        c.add("signal=$signalLevel/4" + (networkType?.let { "($it)" } ?: ""))
+    }
+    if (nfcEnabled == true) c.add("nfc:on")
+
+    return c
+}
+
+/**
+ * True when the `[CONTEXT ...]` block would tell the model something.
+ *
+ * [toPromptBlock] always returns a populated block — activity, location, light and proximity are
+ * unconditional — so without this guard an idle device prepends four "unknown" fields to every
+ * single prompt. Callers use it to decide whether to send the block at all; see
+ * [GhostPrompts.buildUserPrompt].
+ */
+fun ContextState.hasSignal(): Boolean = renderClauses().carriesInfo
 
 /**
  * The one-line ASCII context block prepended to each user message before [sendUserPrompt].
  * Kept compact to minimise token cost on a 1.5B model with an 8k context budget — transcripts are
  * hard-truncated to ~15 words, and the camera is reported as metadata only (the model cannot see).
  */
-fun ContextState.toPromptBlock(): String {
-    val parts = mutableListOf<String>()
-    parts += "activity=${activity.name.lowercase()}" + if (activityConfidence > 0) "($activityConfidence%)" else ""
-    parts += "location=${locationBucket.name.lowercase()}"
-    if (speedKmh > 0f) parts += "speed=${"%.1f".format(speedKmh)}km/h"
-    parts += "light=${lightBucket.name.lowercase()}" + if (lightLux >= 0f) "(${lightLux.toInt()}lx)" else ""
-    parts += "proximity=${proximity.name.lowercase()}"
-    if (stepRatePerMin > 0) parts += "steps=${stepRatePerMin}/min"
-    // Mic: voice/silent/off + level, and the latest heard utterance (truncated).
-    if (micState != MicState.UNKNOWN && micState != MicState.OFF) {
-        parts += "mic=${micState.name.lowercase()}" + if (audioLevelDb > -100f) "(${audioLevelDb.toInt()}dB)" else ""
-    }
-    if (micState == MicState.OFF) parts += "mic:off"
-    transcriptSnippet?.takeIf { it.isNotBlank() }?.let {
-        parts += "heard=\"${truncateWords(it, 15)}\""
-    }
-    // Camera: metadata only — the model cannot see the frame, just knows one was captured.
-    if (lastFrameMs > 0L) {
-        val br = if (sceneBrightness >= 0f) sceneBrightness.toInt() else -1
-        parts += "camera=captured(${lastFrameFacing ?: "unknown"},br $br)"
-    } else if (!cameraAvailable) {
-        parts += "camera:off"
-    }
-    if (!gmsAvailable) parts += "gms:off"
-
-    // --- Phase 4.5 additions ---
-    // Every one of these is omitted unless it carries information. The block rides on EVERY prompt
-    // into a 1.5B model with an 8k window, so an idle phone must cost no more tokens than before.
-    if (posture != Posture.UNKNOWN) parts += "posture=${posture.name.lowercase()}"
-    if (inPocket == true) parts += "pocket=yes"
-    heading?.let { parts += "heading=$it" }
-    if (motion != MotionState.UNKNOWN) parts += "motion=${motion.name.lowercase()}"
-    // Only surface a pick-up while it is still "just happened" — a stale timestamp is noise.
-    if (lastPickUpMs > 0L && System.currentTimeMillis() - lastPickUpMs < PICK_UP_RECENT_MS) {
-        parts += "just_picked_up"
-    }
-    if (nearbyCount > 0) {
-        parts += "nearby=$nearbyCount"
-        nearbyKnown?.takeIf { it.isNotBlank() }?.let { parts += "known=\"${truncateWords(it, 8)}\"" }
-    }
-    // Call state matters because it means "do not start talking"; IDLE is the boring default.
-    if (callState == CallState.RINGING || callState == CallState.IN_CALL) {
-        parts += "call=${callState.name.lowercase()}"
-    }
-    // Network only when it is bad enough to matter (cloud calls will struggle) or during a call.
-    if (signalLevel in 0..1 || (signalLevel >= 0 && callState == CallState.IN_CALL)) {
-        parts += "signal=$signalLevel/4" + (networkType?.let { "($it)" } ?: "")
-    }
-    if (nfcEnabled == true) parts += "nfc:on"
-
-    return "[CONTEXT ${parts.joinToString(" ")}]"
-}
+fun ContextState.toPromptBlock(): String = "[CONTEXT ${renderClauses().parts.joinToString(" ")}]"
 
 /** A pick-up older than this is no longer "just now" and is dropped from the context block. */
 private const val PICK_UP_RECENT_MS = 90_000L

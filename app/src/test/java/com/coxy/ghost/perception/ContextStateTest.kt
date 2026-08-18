@@ -89,15 +89,23 @@ class ContextStateTest {
     }
 
     @Test
-    fun hasSignal_isFalseOnlyWhenNothingHasBeenSensed() {
+    fun hasSignal_isFalseWheneverTheBlockWouldSayNothing() {
         assertFalse("a default state carries no information", ContextState().hasSignal())
 
-        assertTrue(ContextState(timestampMs = 1L).hasSignal())
-        assertTrue(ContextState(lastTranscriptMs = 1L).hasSignal())
+        // A bare timestamp is not a reading. `timestampMs` and `lastTranscriptMs` render no clause
+        // at all, so a state carrying only one of them would send four unknowns and nothing else.
+        // In practice PerceptionManager stamps them alongside a real reading, which is why this
+        // never showed up as a bare block on the device.
+        assertFalse("a stamp is not a sense", ContextState(timestampMs = 1L).hasSignal())
+        assertFalse("a stamp is not a transcript", ContextState(lastTranscriptMs = 1L).hasSignal())
+
+        assertTrue(ContextState(timestampMs = 1L, activity = Activity.STILL).hasSignal())
+        assertTrue(ContextState(transcriptSnippet = "put the kettle on").hasSignal())
         assertTrue(ContextState(lastFrameMs = 1L).hasSignal())
         assertTrue(ContextState(micState = MicState.SILENT).hasSignal())
         assertTrue("an unavailable mic is itself information", ContextState(micAvailable = false).hasSignal())
         assertTrue("an unavailable camera is itself information", ContextState(cameraAvailable = false).hasSignal())
+        assertTrue("a missing GMS is itself information", ContextState(gmsAvailable = false).hasSignal())
     }
 
     @Test
@@ -178,14 +186,78 @@ class ContextStateTest {
 
     @Test
     fun hasSignal_isTrueForSourcesThatDoNotStampATimestamp() {
-        // BLE and telephony are not sensor-clocked, so they must be named explicitly in hasSignal
-        // or a phone that only knows those things would send a bare prompt.
+        // BLE and telephony are not sensor-clocked, so a phone that only knows those things must
+        // still send its block — but only when the thing it knows is one the block actually prints.
         assertTrue(ContextState(posture = Posture.FACE_DOWN).hasSignal())
         assertTrue(ContextState(inPocket = true).hasSignal())
         assertTrue(ContextState(heading = "S").hasSignal())
         assertTrue(ContextState(motion = MotionState.MOVING).hasSignal())
-        assertTrue(ContextState(nearbyCount = 0).hasSignal())
-        assertTrue(ContextState(callState = CallState.IDLE).hasSignal())
-        assertTrue(ContextState(nfcEnabled = false).hasSignal())
+        assertTrue(ContextState(nearbyCount = 4).hasSignal())
+        assertTrue(ContextState(callState = CallState.RINGING).hasSignal())
+        assertTrue(ContextState(nfcEnabled = true).hasSignal())
+        assertTrue(ContextState(lastPickUpMs = System.currentTimeMillis()).hasSignal())
+        assertTrue(ContextState(speedKmh = 4.2f).hasSignal())
+        assertTrue(ContextState(stepRatePerMin = 98).hasSignal())
+        assertTrue(ContextState(signalLevel = 1).hasSignal())
+    }
+
+    @Test
+    fun hasSignal_isFalseForStatesTheBlockDeliberatelyDoesNotPrint() {
+        // These are the four that drifted. RadioWatcher sets call state to IDLE and NFC to
+        // true/false the moment it starts, so before this was fixed every prompt on a running
+        // device claimed signal and then printed nothing but the unconditional unknowns.
+        assertFalse("IDLE is the boring default", ContextState(callState = CallState.IDLE).hasSignal())
+        assertFalse("nfc:off is never printed", ContextState(nfcEnabled = false).hasSignal())
+        assertFalse("pocket=no is never printed", ContextState(inPocket = false).hasSignal())
+        assertFalse("nearby=0 is never printed", ContextState(nearbyCount = 0).hasSignal())
+        assertFalse("a full signal bar is not news", ContextState(signalLevel = 4).hasSignal())
+        assertFalse("a stale pick-up is noise", ContextState(lastPickUpMs = 1L).hasSignal())
+    }
+
+    @Test
+    fun hasSignalAgreesWithWhatTheBlockActuallySays() {
+        // The invariant, and the test this file was missing. Both halves were pinned field by
+        // field above; the relationship between them was not, and that is where Phase 4.5 drifted.
+        // hasSignal() must be true exactly when the block carries a clause beyond the four
+        // unconditional unknowns.
+        val states = mapOf(
+            "default" to ContextState(),
+            "bare timestamp" to ContextState(timestampMs = 1L),
+            "radios read, nothing else" to
+                ContextState(callState = CallState.IDLE, nfcEnabled = false, signalLevel = 4),
+            "scanned, saw nobody" to ContextState(nearbyCount = 0, inPocket = false),
+            "one real reading" to ContextState(timestampMs = 1L, lightBucket = LightBucket.DARK),
+            "walking" to ContextState(activity = Activity.WALKING, activityConfidence = 85, speedKmh = 4.2f),
+            "on a call" to ContextState(callState = CallState.IN_CALL, signalLevel = 2, networkType = "LTE"),
+            "heard something" to ContextState(transcriptSnippet = "put the kettle on"),
+            "mic broken" to ContextState(micAvailable = false),
+            "camera broken" to ContextState(cameraAvailable = false),
+            "no GMS" to ContextState(gmsAvailable = false),
+            "just picked up" to ContextState(lastPickUpMs = System.currentTimeMillis()),
+            "stale pick-up" to ContextState(lastPickUpMs = 1L),
+            "face down in a pocket" to
+                ContextState(posture = Posture.FACE_DOWN, inPocket = true, motion = MotionState.STATIONARY),
+        )
+        for ((name, state) in states) {
+            assertEquals(
+                "hasSignal() disagrees with toPromptBlock() for '$name': ${state.toPromptBlock()}",
+                state.blockSaysSomething(),
+                state.hasSignal(),
+            )
+        }
+    }
+
+    /**
+     * Whether the rendered block contains anything beyond the four unconditional clauses in their
+     * unknown form. Deliberately re-derived from the rendered string rather than from the same code
+     * [hasSignal] uses, so this asserts the contract instead of restating the implementation.
+     */
+    private fun ContextState.blockSaysSomething(): Boolean {
+        val noise = setOf("activity=unknown", "location=unknown", "light=unknown", "proximity=unknown")
+        return toPromptBlock()
+            .removePrefix("[CONTEXT ")
+            .removeSuffix("]")
+            .split(" ")
+            .any { it.isNotBlank() && it !in noise }
     }
 }
