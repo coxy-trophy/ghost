@@ -30,7 +30,16 @@ class SeparationClaimTest {
         assertTrue(MemoryStore.claimsSeparation("I am far from you right now"))
         assertTrue(MemoryStore.claimsSeparation("you are far from me"))
         assertTrue(MemoryStore.claimsSeparation("I'm away from you at the moment"))
-        assertTrue(MemoryStore.claimsSeparation("I am not with you"))
+    }
+
+    @Test
+    fun idiomsThatMeanTheOppositeAreNotMatched() {
+        // These read as separation and are not. "Apart from you" means *besides* you, and "not with
+        // you" is how anyone says they did not follow the point. Neither was ever observed among
+        // the rows this cleans up, and this matcher deletes — so they are deliberately excluded.
+        assertFalse(MemoryStore.claimsSeparation("Apart from you, nobody knows about it."))
+        assertFalse(MemoryStore.claimsSeparation("I'm not with you on that one."))
+        assertFalse(MemoryStore.claimsSeparation("Apart from me, who else was there?"))
     }
 
     @Test

@@ -221,8 +221,13 @@ class MemoryStore(context: Context) {
         @JvmStatic
         fun claimsSeparation(content: String): Boolean = SEPARATION.containsMatchIn(content)
 
+        // "apart from" and "not with" were in an earlier version of this and have been removed.
+        // Both are ordinary English idioms that mean the opposite of separation — "apart from you,
+        // nobody knows" is *besides*, and "I'm not with you on that" is *I don't follow* — and
+        // neither was ever observed in the rows this exists to clean up. On a matcher that drives a
+        // delete, an unobserved pattern is not worth the risk of destroying a real memory.
         private val SEPARATION = Regex(
-            """\b(?:far\s+away\s+from|far\s+from|away\s+from|apart\s+from|not\s+with)\s+(?:you|me)\b""",
+            """\b(?:far\s+away\s+from|far\s+from|away\s+from)\s+(?:you|me)\b""",
             RegexOption.IGNORE_CASE,
         )
 

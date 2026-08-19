@@ -100,7 +100,11 @@ class InitiativeManager(
         val transitions = TransitionDetector.detect(previous, current, now, lastEvaluatedMs)
 
         val enabled = GhostPrefs.isInitiativeEnabled(context)
-        val history = GhostPrefs.initiativeHistory(context, today())
+        // One reading of the calendar day for the whole pass. Reading it again inside speak() meant
+        // a tick that straddled local midnight could check the count against yesterday and then
+        // record against today, quietly handing back a fresh daily allowance mid-decision.
+        val today = today()
+        val history = GhostPrefs.initiativeHistory(context, today)
         val decision = InitiativePolicy.decide(
             transitions = transitions,
             state = current,
@@ -124,12 +128,12 @@ class InitiativeManager(
                     Log.i(TAG, "held (${transitions.joinToString { it.kind.name }}): ${decision.reason}")
                 }
             }
-            is InitiativeDecision.Speak -> speak(decision.transition, current, now)
+            is InitiativeDecision.Speak -> speak(decision.transition, current, now, today)
         }
     }
 
     /** Generate and deliver one unprompted remark, or discover the model had nothing to say. */
-    private suspend fun speak(transition: Transition, state: ContextState, now: Long) {
+    private suspend fun speak(transition: Transition, state: ContextState, now: Long, today: String) {
         // A user query always outranks this. Skipping rather than queueing is deliberate: by the
         // time the engine frees up, the observation is stale.
         if (!EngineGate.tryAcquire()) {
@@ -159,7 +163,7 @@ class InitiativeManager(
 
             deliver(text)
             memoryStore.remember(role = "assistant", content = text, source = SOURCE_UNPROMPTED)
-            GhostPrefs.recordInitiativeSpoken(context, transition.kind, now, today())
+            GhostPrefs.recordInitiativeSpoken(context, transition.kind, now, today)
             Log.i(TAG, "spoke unprompted (${transition.kind}): $text")
         } finally {
             EngineGate.release()
