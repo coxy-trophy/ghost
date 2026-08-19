@@ -707,6 +707,13 @@ class MainActivity : AppCompatActivity() {
                         sendCaptureFrame(CameraCapture.FACING_BACK)
                         delay(VisionTrigger.CAPTURE_WAIT_MS)
                     }
+                    // Phase 6.4: a correction about her manner ("less sarcastic", "be more
+                    // direct") changes the trait before this turn's prompt is built, so the reply
+                    // that acknowledges the correction is already the corrected voice.
+                    val nudgeAck = com.coxy.ghost.personality.TraitNudger.applyFromText(
+                        personalityRepo, userMsg, GhostService::refreshPersonalityPrompt
+                    )
+
                     val cs = ContextStore.state.value
                     // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block.
                     // recall runs off llamaDispatcher (TFLite + Room), engine idle. Assembly is
@@ -730,6 +737,7 @@ class MainActivity : AppCompatActivity() {
                     // the deprecated "Ghost:" prefix, then persist the final reply for future recall.
                     val rawReply = lastAssistantMsg.toString()
                     val reply = stripGhostPrefix(ActionRunner.run(actionExecutor, rawReply))
+                        .let { if (nudgeAck != null) "$it\n\n$nudgeAck" else it }
                     finalReply = reply
 
                     // Update the assistant bubble if action results changed the text.

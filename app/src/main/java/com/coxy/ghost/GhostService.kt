@@ -644,6 +644,11 @@ class GhostService : LifecycleService() {
                 cameraCapture?.captureOnDemand(CameraCapture.FACING_BACK)
                 delay(VisionTrigger.CAPTURE_WAIT_MS)
             }
+            // Phase 6.4: same as the typed path — the trait moves before the prompt is built.
+            val nudgeAck = com.coxy.ghost.personality.TraitNudger.applyFromText(
+                personalityRepo, cmd, GhostService::refreshPersonalityPrompt
+            )
+
             val cs = ContextStore.state.value
             // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block
             // (rides the sendUserPrompt string alongside [CONTEXT]). recall runs off the engine's
@@ -662,6 +667,7 @@ class GhostService : LifecycleService() {
             // Phase 7: parse any structured actions from the reply, execute immediate ones, and
             // surface Tier 3 actions for confirmation. Also strip the deprecated "Ghost:" prefix.
             val finalReply = stripGhostPrefix(ActionRunner.run(actionExecutor, sb.toString()))
+                .let { if (nudgeAck != null) "$it\n\n$nudgeAck" else it }
             ContextStore.update { it.copy(voiceResponse = finalReply) }
 
             // After the reply completes (engine idle): persist the turn pair for future recall.
@@ -804,6 +810,21 @@ class GhostService : LifecycleService() {
         @JvmStatic
         val currentSystemPrompt: String
             get() = appliedSystemPrompt.ifBlank { baselineSystemPrompt }
+
+        /**
+         * Rebuild the in-force system prompt around a new `[PERSONALITY ...]` block.
+         *
+         * Used by Phase 6.4's trait drift, which must not reload the model: a correction like "be
+         * more direct" would otherwise cost a full GGUF reload and drop the conversation context to
+         * change one slider. The cloud brain reads [currentSystemPrompt] per request and so obeys
+         * the change on the very next turn — including the reply to the correction itself. The
+         * local engine's setSystemPrompt is once-only per load and catches up when it next loads.
+         */
+        @JvmStatic
+        fun refreshPersonalityPrompt(personalityBlock: String) {
+            appliedSystemPrompt = GhostPrompts.buildSystemPrompt(personalityBlock)
+            Log.i(TAG, "system prompt rebuilt for personality change: $personalityBlock")
+        }
 
         @Volatile
         private var appliedSystemPrompt: String = ""
