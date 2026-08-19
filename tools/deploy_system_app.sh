@@ -89,6 +89,20 @@ fi
 echo "Pushing to device..."
 $ADB push "$APK" "$STAGE" >/dev/null
 
+# Stop GHOST before the APK underneath it is overwritten.
+#
+# The module file is magic-mounted at /system/priv-app/GHOST/GHOST.apk, so a running process has
+# this exact file mapped — along with the 1.1 GB GGUF it has open. Copying over it invalidates
+# those mappings, and the next page the process touches raises SIGBUS/BUS_ADRERR. That produced one
+# tombstone per deploy on 2026-08-19 (tombstone_20/21/22, all com.coxy.ghost, all BUS_ADRERR at a
+# deploy reboot); the plain reboot immediately afterwards, with no APK swap, produced none.
+#
+# The kill-switch flag is deliberately untouched: this stops the process, it does not tell GHOST to
+# stay down, so service.sh brings it back on the next boot as usual.
+echo "Stopping GHOST before replacing its APK..."
+$ADB shell "su -c 'am force-stop $PKG'" >/dev/null 2>&1 || true
+sleep 2
+
 echo "Replacing module APK..."
 $ADB shell "su -c 'cp $STAGE $MODULE/GHOST.apk && \
   chown root:root $MODULE/GHOST.apk && \
