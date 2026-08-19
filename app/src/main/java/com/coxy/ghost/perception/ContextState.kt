@@ -49,6 +49,14 @@ data class ContextState(
     // The streamed reply to the current voice command (null when none in flight). MainActivity
     // renders this into the chat as it grows.
     val voiceResponse: String? = null,
+    // --- Something GHOST said without being asked (see com.coxy.ghost.initiative) ---
+    // A separate channel from voiceResponse on purpose: that field is bound to the bubble opened by
+    // the current voiceCommandSeq, so writing an unprompted remark into it would overwrite the last
+    // spoken reply rather than appear as its own turn.
+    val unpromptedText: String? = null,
+    // Monotonic, for the same reason voiceCommandSeq is: StateFlow conflates, and the same remark
+    // can legitimately repeat, so the text alone cannot tell an observer that a new one arrived.
+    val unpromptedSeq: Long = 0L,
     // --- Phase 4.5: posture, handling and motion (all event-driven; see PerceptionManager) ---
     /** How the phone is lying. FACE_UP on a desk is a different world from FACE_DOWN in a bag. */
     val posture: Posture = Posture.UNKNOWN,

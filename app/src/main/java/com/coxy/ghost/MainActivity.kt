@@ -266,7 +266,23 @@ class MainActivity : AppCompatActivity() {
             var lastSeq = 0L
             var voiceIdx = -1
             var lastShown = ""
+            var lastUnpromptedSeq = 0L
             ContextStore.state.collect { cs ->
+                // Something GHOST said on her own. Appended as its own assistant turn rather than
+                // written into the voice reply's bubble, and keyed on the seq because the same
+                // remark can legitimately repeat.
+                if (cs.unpromptedSeq != lastUnpromptedSeq) {
+                    lastUnpromptedSeq = cs.unpromptedSeq
+                    val said = cs.unpromptedText
+                    if (!said.isNullOrBlank()) {
+                        withContext(Dispatchers.Main) {
+                            messages.add(Message(UUID.randomUUID().toString(), said, false))
+                            messageAdapter.notifyItemInserted(messages.size - 1)
+                            // The bubble the voice path is streaming into has moved down by one.
+                            if (voiceIdx >= 0) voiceIdx = -1
+                        }
+                    }
+                }
                 val cmd = cs.voiceCommand
                 if (cs.voiceCommandSeq != lastSeq) {
                     // Advance regardless of whether the text survived, matching GhostService's

@@ -6,10 +6,12 @@ import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.coxy.ghost.cloud.CloudPromptFilter
 import com.coxy.ghost.perception.HomePoint
+import com.coxy.ghost.perception.TransitionKind
 import com.coxy.ghost.perception.wakeword.WakeTrigger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -57,6 +59,14 @@ object GhostPrefs {
     private val KEY_HOME_LAT = doublePreferencesKey("home_lat")
     private val KEY_HOME_LON = doublePreferencesKey("home_lon")
     private val KEY_HOME_RADIUS_M = floatPreferencesKey("home_radius_m")
+
+    // Speaking first. Default OFF, and deliberately so: this app's history with ambient behaviour
+    // that defaults on is the always-listening mic, which woke on room noise every 30 seconds. A
+    // feature that can interrupt someone starts switched off and gets turned on on purpose.
+    private val KEY_INITIATIVE_ENABLED = booleanPreferencesKey("initiative_enabled")
+    private val KEY_LAST_PROACTIVE_MS = longPreferencesKey("initiative_last_ms")
+    private val KEY_PROACTIVE_DAY = stringPreferencesKey("initiative_day")
+    private val KEY_PROACTIVE_COUNT = intPreferencesKey("initiative_count_today")
 
     fun modelPathFlow(ctx: Context): Flow<String?> =
         ctx.ghostDataStore.data.map { it[KEY_MODEL_PATH] }
@@ -181,6 +191,50 @@ object GhostPrefs {
      * Store or clear the home point. Reachable from a root shell via `ACTION_SET_HOME`, so the
      * radius is clamped on write as well as on read.
      */
+    /** Whether GHOST may start a conversation on her own. */
+    suspend fun isInitiativeEnabled(ctx: Context): Boolean =
+        ctx.ghostDataStore.data.first()[KEY_INITIATIVE_ENABLED] ?: false
+
+    suspend fun setInitiativeEnabled(ctx: Context, enabled: Boolean) {
+        ctx.ghostDataStore.edit { p -> p[KEY_INITIATIVE_ENABLED] = enabled }
+    }
+
+    /**
+     * When she last spoke unprompted, how many times she has today, and when she last used each
+     * kind of observation.
+     *
+     * Persisted rather than held in memory because the daemon restarts — on a kill, on a
+     * `START_STICKY` recovery, on every reboot — and a rate limit that resets whenever the process
+     * does is not a rate limit. [day] is the local calendar day the count belongs to; a count from
+     * yesterday is discarded on read rather than needing a scheduled reset.
+     */
+    suspend fun initiativeHistory(ctx: Context, today: String): InitiativeHistory {
+        val prefs = ctx.ghostDataStore.data.first()
+        val storedDay = prefs[KEY_PROACTIVE_DAY]
+        val count = if (storedDay == today) (prefs[KEY_PROACTIVE_COUNT] ?: 0) else 0
+        val byKind = TransitionKind.entries.mapNotNull { kind ->
+            prefs[longPreferencesKey(kindKey(kind))]?.let { kind to it }
+        }.toMap()
+        return InitiativeHistory(
+            lastSpokeAtMs = prefs[KEY_LAST_PROACTIVE_MS] ?: 0L,
+            spokenToday = count,
+            lastSpokeByKind = byKind,
+        )
+    }
+
+    /** Record that she spoke. [today] is the local calendar day, so the cap rolls over by itself. */
+    suspend fun recordInitiativeSpoken(ctx: Context, kind: TransitionKind, atMs: Long, today: String) {
+        ctx.ghostDataStore.edit { p ->
+            val sameDay = p[KEY_PROACTIVE_DAY] == today
+            p[KEY_PROACTIVE_DAY] = today
+            p[KEY_PROACTIVE_COUNT] = (if (sameDay) (p[KEY_PROACTIVE_COUNT] ?: 0) else 0) + 1
+            p[KEY_LAST_PROACTIVE_MS] = atMs
+            p[longPreferencesKey(kindKey(kind))] = atMs
+        }
+    }
+
+    private fun kindKey(kind: TransitionKind) = "initiative_last_${kind.name.lowercase()}"
+
     suspend fun setHomePoint(ctx: Context, lat: Double?, lon: Double?, radiusM: Float?) {
         ctx.ghostDataStore.edit { p ->
             if (lat == null || lon == null) {
@@ -198,3 +252,10 @@ object GhostPrefs {
         }
     }
 }
+
+/** A snapshot of the rate-limit state [GhostPrefs.initiativeHistory] reads in one pass. */
+data class InitiativeHistory(
+    val lastSpokeAtMs: Long,
+    val spokenToday: Int,
+    val lastSpokeByKind: Map<TransitionKind, Long>,
+)

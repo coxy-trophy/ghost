@@ -42,7 +42,8 @@ class CloudRouter(
     suspend fun route(
         fullPrompt: String,
         systemPrompt: String,
-        predictLength: Int = 512
+        predictLength: Int = 512,
+        allowLocalFallback: Boolean = true
     ): Flow<String> {
         val prefs = settingsProvider()
         // One read: keyProvider hits encrypted storage, and this was calling it twice per query.
@@ -53,19 +54,19 @@ class CloudRouter(
         // Each reason is now distinct, and the chosen brain is published for the UI.
         if (!prefs.enabled) {
             Log.i(TAG, "cloud switched off in settings — using local engine")
-            return local(fullPrompt, Brain.LOCAL_DISABLED)
+            return local(fullPrompt, Brain.LOCAL_DISABLED, allowLocalFallback)
         }
         if (key.isNullOrBlank()) {
             Log.w(TAG, "cloud is ON but no API key is stored — using local engine. " +
                 "Store one via the Cloud screen or CloudKeyInjectionTest -e keyFile.")
-            return local(fullPrompt, Brain.LOCAL_NO_KEY)
+            return local(fullPrompt, Brain.LOCAL_NO_KEY, allowLocalFallback)
         }
         // Without this, an offline phone waits out a 15s connect timeout per model in the chain
         // before falling back — up to 30s of silence for a query the local engine could have
         // started answering immediately. "Offline fallback" has to actually be fast.
         if (!isOnline()) {
             Log.i(TAG, "no network — using local engine")
-            return local(fullPrompt, Brain.LOCAL_OFFLINE)
+            return local(fullPrompt, Brain.LOCAL_OFFLINE, allowLocalFallback)
         }
         val filtered = CloudPromptFilter.apply(fullPrompt, prefs.privacyMode)
 
@@ -93,16 +94,31 @@ class CloudRouter(
                 flow { emit(reply) }.flowOn(kotlinx.coroutines.Dispatchers.Default)
             } else {
                 Log.w(TAG, "Cloud returned empty reply — falling back to local")
-                local(fullPrompt, Brain.LOCAL_CLOUD_FAILED)
+                local(fullPrompt, Brain.LOCAL_CLOUD_FAILED, allowLocalFallback)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Cloud routing failed — falling back to local engine", e)
-            local(fullPrompt, Brain.LOCAL_CLOUD_FAILED)
+            local(fullPrompt, Brain.LOCAL_CLOUD_FAILED, allowLocalFallback)
         }
     }
 
-    private fun local(prompt: String, why: Brain): Flow<String> {
+    /**
+     * Fall back to the on-device engine — unless the caller has forbidden it.
+     *
+     * [allowLocal] exists for callers whose prompt must not enter the local engine's conversation
+     * context at all. The engine exposes exactly one context, shared by every path, and a second
+     * would need a `:lib` rebuild. That is how `FactExtractor`'s `[FACT_EXTRACTION]` meta-turns
+     * became part of the model's own history in v0.11.4 and taught it to answer ordinary messages
+     * with `FACT: ...` — 11 of 37 assistant turns in the live DB. A cloud call carries its whole
+     * context in the request and leaves no residue, so synthetic prompts belong there or nowhere.
+     * When cloud is unavailable such a caller gets an empty flow and is expected to stay quiet.
+     */
+    private fun local(prompt: String, why: Brain, allowLocal: Boolean = true): Flow<String> {
         lastBrain = why
+        if (!allowLocal) {
+            Log.i(TAG, "no cloud and local fallback is not permitted for this caller — staying silent")
+            return kotlinx.coroutines.flow.emptyFlow()
+        }
         return engine.sendUserPrompt(prompt)
     }
 

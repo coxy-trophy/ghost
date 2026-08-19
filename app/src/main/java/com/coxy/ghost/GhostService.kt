@@ -45,6 +45,7 @@ import com.coxy.ghost.perception.RetentionManager
 import com.coxy.ghost.action.ActionExecutor
 import com.coxy.ghost.action.ActionRunner
 import com.coxy.ghost.cloud.CloudRouter
+import com.coxy.ghost.initiative.InitiativeManager
 import com.coxy.ghost.personality.PersonalityRepository
 import com.coxy.ghost.personality.PersonalityTranslator
 import kotlinx.coroutines.Dispatchers
@@ -95,6 +96,22 @@ class GhostService : LifecycleService() {
     // Phase 8: cloud-brain router. Falls back to the local 1.5B engine when cloud is unavailable.
     private val cloudRouter: CloudRouter by lazy { CloudRouter(applicationContext, engine) }
 
+    /**
+     * The path by which GHOST speaks first. Switched off by default; [ACTION_SET_INITIATIVE] turns
+     * it on. The loop runs regardless and holds on the preference, so toggling it takes effect on
+     * the next tick without restarting anything.
+     */
+    private val initiative: InitiativeManager by lazy {
+        InitiativeManager(
+            context = applicationContext,
+            scope = lifecycleScope,
+            router = cloudRouter,
+            memoryStore = memoryStore,
+            initiativeTrait = { runCatching { personalityRepo.activeProfile().initiative }.getOrDefault(0) },
+            systemPrompt = { currentSystemPrompt },
+        )
+    }
+
     // Thermal monitoring (GHOST.md §8: measure honestly).
     @Volatile private var lastThermalStatus: Int = 0
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
@@ -125,6 +142,7 @@ class GhostService : LifecycleService() {
         // Phase 6: initialise the on-device sentence embedder (copies the ~22 MB model asset to
         // filesDir on first run). Off the main thread; idempotent if MainActivity already inited it.
         lifecycleScope.launch(Dispatchers.IO) { Embedder.init(applicationContext) }
+        initiative.start()
 
         // Drop fact-extraction output that was stored as conversation. Those rows keep being
         // recalled into [MEMORY] and keep re-teaching GHOST to answer in "FACT: GHOST did X" form
@@ -421,6 +439,13 @@ class GhostService : LifecycleService() {
                     perception?.reloadHome()
                 }
             }
+            ACTION_SET_INITIATIVE -> {
+                // Whether GHOST may start a conversation. Off unless deliberately turned on — the
+                // one other ambient behaviour that defaulted on was the always-listening mic.
+                val on = intent.getBooleanExtra(EXTRA_ENABLED, false)
+                Log.i(TAG, "speaking first set to $on")
+                lifecycleScope.launch { GhostPrefs.setInitiativeEnabled(applicationContext, on) }
+            }
             ACTION_KILL -> {
                 // Independent kill switch (D3, §8): stop everything + wipe retention + stopSelf.
                 // setEnabled(false) is also persisted by KillSwitch.killGhost (the caller), but we
@@ -428,6 +453,7 @@ class GhostService : LifecycleService() {
                 Log.i(TAG, "Kill requested (independent kill switch)")
                 lifecycleScope.launch {
                     GhostPrefs.setEnabled(applicationContext, false)
+                    initiative.stop()
                     perception?.stop(); perception = null
                     bleScanner?.stop(); bleScanner = null
                     radioWatcher?.stop(); radioWatcher = null
@@ -704,6 +730,7 @@ class GhostService : LifecycleService() {
         const val ACTION_SET_KWS_TUNING = "com.coxy.ghost.action.SET_KWS_TUNING"
         const val ACTION_SET_MODEL_PATH = "com.coxy.ghost.action.SET_MODEL_PATH"
         const val ACTION_SET_HOME = "com.coxy.ghost.action.SET_HOME"
+        const val ACTION_SET_INITIATIVE = "com.coxy.ghost.action.SET_INITIATIVE"
         const val EXTRA_FACING = "facing"
         const val EXTRA_PATH = "path"
         const val EXTRA_LABEL = "label"
