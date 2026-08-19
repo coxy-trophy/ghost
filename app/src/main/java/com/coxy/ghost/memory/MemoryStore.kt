@@ -76,10 +76,31 @@ class MemoryStore(context: Context) {
         }
         if (scored.isEmpty()) return emptyList()
         scored.sortByDescending { it.first }
-        val winnerIds = scored.take(topK).map { it.second }
+
+        // Take a wider candidate set than needed so the quota below has something to promote in
+        // place of what it drops. Still a projection of a handful of rows, not the whole table.
+        val candidateIds = scored.take(topK * CANDIDATE_FACTOR).map { it.second }
         // byIds returns rows in whatever order SQLite hands back — restore similarity order.
-        val byId = dao.byIds(winnerIds).associateBy { it.id }
-        val winners = winnerIds.mapNotNull { byId[it] }
+        val byId = dao.byIds(candidateIds).associateBy { it.id }
+        val candidates = candidateIds.mapNotNull { byId[it] }
+
+        // Cap how much of her own past *phrasing* comes back.
+        //
+        // The block renders recalled turns verbatim as `you: "..."`, so a reply that quotes her own
+        // previous answers is being shown a template, and a small-enough gap between two similar
+        // questions makes copying it the likeliest continuation. Observed 2026-08-19: two answers 28
+        // minutes apart, the second reproducing the first nearly word for word.
+        //
+        // Extracted facts are deliberately exempt even though they are stored with role=assistant.
+        // They are information rather than voice — "he takes his coffee black" is what memory is
+        // *for* — and filtering on role alone would starve exactly the entries worth recalling.
+        var spoken = 0
+        val winners = candidates.filter { e ->
+            val isHerVoice = e.role == "assistant" && e.source != "fact"
+            if (!isHerVoice) true else (spoken++ < MAX_SPOKEN_RECALLS)
+        }.take(topK)
+        val winnerIds = winners.map { it.id }
+        if (winnerIds.isEmpty()) return emptyList()
         runCatching { dao.bumpRecall(winnerIds) }
         Log.i(TAG, "recall query=\"${query.take(40)}\" hits=${scored.size} top=${winners.firstOrNull()?.content?.take(30)}")
         return winners
@@ -235,6 +256,17 @@ class MemoryStore(context: Context) {
         private const val MAX_TURNS = 1000
         private const val DEFAULT_TOP_K = 5
         private const val MIN_SIM = 0.20f // below this, not similar enough to inject
+
+        /**
+         * How many of her own conversational replies may appear in one `[MEMORY]` block.
+         *
+         * One is enough to keep continuity — "you already told him this" — without handing the
+         * model a set of its own answers to imitate. Extracted facts do not count against it.
+         */
+        private const val MAX_SPOKEN_RECALLS = 1
+
+        /** Candidate multiple fetched so the quota has better entries to promote in place. */
+        private const val CANDIDATE_FACTOR = 4
 
         /** Weight on recallCount in the retention score. Mirrored in [MemoryDao.refreshImportance]. */
         private const val RECALL_WEIGHT = 0.15

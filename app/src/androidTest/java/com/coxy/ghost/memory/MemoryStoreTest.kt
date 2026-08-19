@@ -82,6 +82,31 @@ class MemoryStoreTest {
     }
 
     @Test
+    fun recall_limits_her_own_phrasing_but_not_facts() = runBlocking {
+        // Five near-identical replies of her own about the same subject: without a quota these
+        // dominate recall and the block hands the model its own answers to copy, which is what
+        // produced a reply reproduced almost word for word 28 minutes later.
+        repeat(5) { i ->
+            store.remember("assistant", "The kettle is on and the kitchen is warm, number $i.", "typed")
+        }
+        store.remember("user", "Is the kettle on in the kitchen?", "typed")
+        store.remember("assistant", "FACT: Coxy keeps the kettle in the kitchen.", "fact")
+
+        val hits = store.recall("kettle in the kitchen", topK = 5)
+        assertTrue("expected recall to return something", hits.isNotEmpty())
+
+        val herVoice = hits.count { it.role == "assistant" && it.source != "fact" }
+        assertTrue("at most one of her own replies, got $herVoice: $hits", herVoice <= 1)
+
+        // The fact is stored with role=assistant too, and must survive the quota — filtering on
+        // role alone would starve exactly the entries memory exists for.
+        assertTrue(
+            "the extracted fact should still be recalled: $hits",
+            hits.any { it.source == "fact" }
+        )
+    }
+
+    @Test
     fun prune_keeps_store_bounded() = runBlocking {
         // Seed enough turns to exceed the 1000 cap.
         repeat(1050) { i ->

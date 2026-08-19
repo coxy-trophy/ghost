@@ -37,7 +37,14 @@ PKG=com.coxy.ghost
 SCRIPT_DIR="${0:A:h}"
 APK="$SCRIPT_DIR/../app/build/outputs/apk/debug/app-debug.apk"
 MODULE=/data/adb/modules/ghost_systemapp/system/priv-app/GHOST
-STAGE=/sdcard/Download/GHOST-new.apk
+# Staged through /data/local/tmp rather than /sdcard/Download.
+#
+# /sdcard is a symlink into /storage/emulated/0, which is a FUSE view that is not always mounted in
+# the shell's namespace — on 2026-08-19 it was an empty stub while the real backing store at
+# /data/media/0 was perfectly intact, and every push failed with `secure_mkdirs() failed`. There is
+# no reason to route a root-only deploy through emulated storage at all; /data/local/tmp is always
+# present, always writable by adb, and never depends on a user being unlocked.
+STAGE=/data/local/tmp/GHOST-new.apk
 
 BACKUP_DIR="${GHOST_BACKUP_DIR:-$HOME/ghost-backups/appdata}"
 
@@ -123,8 +130,8 @@ if [ "$DO_LIBS" = "1" ]; then
   unzip -o -q "$APK" 'lib/arm64-v8a/*' -d "$TMP"
   $ADB shell "su -c 'rm -f $MODULE/lib/arm64/*.so'"
   for so in "$TMP"/lib/arm64-v8a/*.so; do
-    $ADB push "$so" "/sdcard/Download/$(basename "$so")" >/dev/null
-    $ADB shell "su -c 'mv /sdcard/Download/$(basename "$so") $MODULE/lib/arm64/ && \
+    $ADB push "$so" "/data/local/tmp/$(basename "$so")" >/dev/null
+    $ADB shell "su -c 'mv /data/local/tmp/$(basename "$so") $MODULE/lib/arm64/ && \
       chown root:root $MODULE/lib/arm64/$(basename "$so") && \
       chmod 644 $MODULE/lib/arm64/$(basename "$so") && \
       chcon u:object_r:system_file:s0 $MODULE/lib/arm64/$(basename "$so")'"
