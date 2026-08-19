@@ -154,6 +154,37 @@ class MemoryStore(context: Context) {
         return removed
     }
 
+    /**
+     * Delete assistant turns in which GHOST claims to be somewhere other than where Coxy is.
+     *
+     * `location=` went live on 2026-08-18 and the first thing it produced was "We are at home, and
+     * it is dark. **I am far away from you**". The context block reports the phone's state, the
+     * phone is in his pocket, and nothing in the prompt said so — a 1.5B will not infer it. The
+     * prompt now states the co-location outright, but that fix alone did not change the answers:
+     * the rows were already in the DB, `recall()` surfaced them for exactly the questions that
+     * provoke the confusion, and the model copied its own recorded behaviour.
+     *
+     * This is the same failure as the `FACT:` artifacts in v0.11.4 and takes the same remedy —
+     * see [purgeExtractionArtifacts]. Fixing the prompt stops new ones; only this stops the old
+     * ones from re-teaching it.
+     *
+     * Deliberately limited to `assistant` rows. "Why are you far away from me" is a real thing Coxy
+     * said, and deleting his side of the conversation to make the model behave would be rewriting
+     * history rather than cleaning up after a defect.
+     */
+    suspend fun purgeSeparationClaims(): Int {
+        val rows = dao.all()
+        var removed = 0
+        for (e in rows) {
+            if (e.role == "assistant" && claimsSeparation(e.content)) {
+                dao.delete(e.id)
+                removed++
+            }
+        }
+        Log.i(TAG, "purgeSeparationClaims: removed $removed/${rows.size} rows")
+        return removed
+    }
+
     private fun recencyScore(nowMs: Long, tsMs: Long): Double {
         val ageDays = max(0.0, (nowMs - tsMs) / 86_400_000.0)
         return 1.0 / (1.0 + ageDays)
@@ -179,6 +210,22 @@ class MemoryStore(context: Context) {
     }
 
     companion object {
+
+        /**
+         * True when a line asserts that GHOST and Coxy are in different places.
+         *
+         * Matches both directions ("far away from you", "far away from me") because the model
+         * produced both. Kept narrow on purpose: it is a delete, and the cost of a false positive
+         * is a real memory destroyed.
+         */
+        @JvmStatic
+        fun claimsSeparation(content: String): Boolean = SEPARATION.containsMatchIn(content)
+
+        private val SEPARATION = Regex(
+            """\b(?:far\s+away\s+from|far\s+from|away\s+from|apart\s+from|not\s+with)\s+(?:you|me)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
         private const val TAG = "MemoryStore"
         private const val MAX_TURNS = 1000
         private const val DEFAULT_TOP_K = 5

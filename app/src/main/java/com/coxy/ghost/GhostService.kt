@@ -150,6 +150,7 @@ class GhostService : LifecycleService() {
         // Idempotent and cheap (one scan of a table capped at 1000 rows); runs once per process.
         lifecycleScope.launch(Dispatchers.IO) {
             runCatching { memoryStore.purgeExtractionArtifacts() }
+            runCatching { memoryStore.purgeSeparationClaims() }
                 .onFailure { Log.w(TAG, "memory artifact purge failed", it) }
         }
 
