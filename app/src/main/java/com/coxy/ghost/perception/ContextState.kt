@@ -226,7 +226,13 @@ private fun ContextState.renderClauses(): ContextClauses {
         "light=${lightBucket.name.lowercase()}" + if (lightLux >= 0f) "(${lightLux.toInt()}lx)" else "",
         lightBucket != LightBucket.UNKNOWN,
     )
-    c.add("proximity=${proximity.name.lowercase()}", proximity != Proximity.UNKNOWN)
+    // Proximity and the vendor pocket sensor answer the same question when they agree. Phase 4.5
+    // added pocket_mode explicitly to replace proximity=NEAR as the "in a pocket" proxy — and then
+    // rendered both, so a phone in a pocket said it twice. A disagreement (pocket says yes, the
+    // proximity sensor says far) is real information and still renders.
+    if (!(inPocket == true && proximity == Proximity.NEAR)) {
+        c.add("proximity=${proximity.name.lowercase()}", proximity != Proximity.UNKNOWN)
+    }
     if (stepRatePerMin > 0) c.add("steps=${stepRatePerMin}/min")
 
     // Mic: voice/silent + level, or a single "GHOST cannot hear right now".
@@ -255,7 +261,13 @@ private fun ContextState.renderClauses(): ContextClauses {
     if (posture != Posture.UNKNOWN) c.add("posture=${posture.name.lowercase()}")
     if (inPocket == true) c.add("pocket=yes")
     heading?.let { c.add("heading=$it") }
-    if (motion != MotionState.UNKNOWN) c.add("motion=${motion.name.lowercase()}")
+    // The hardware motion one-shot is a cheap backstop for activity recognition, not a second
+    // opinion worth stating. When the two agree it is another word for a fact already in the block;
+    // when they disagree, or when activity is unknown, it is the only thing being said. A 1.5B
+    // reads repetition as emphasis rather than corroboration, so agreement stays silent.
+    if (motion != MotionState.UNKNOWN && !motionEchoesActivity()) {
+        c.add("motion=${motion.name.lowercase()}")
+    }
     // Only surface a pick-up while it is still "just happened" — a stale timestamp is noise.
     if (lastPickUpMs > 0L && now - lastPickUpMs < PICK_UP_RECENT_MS) {
         c.add("just_picked_up")
@@ -275,6 +287,24 @@ private fun ContextState.renderClauses(): ContextClauses {
     if (nfcEnabled == true) c.add("nfc:on")
 
     return c
+}
+
+/** Activities that mean the phone is going somewhere, for [motionEchoesActivity]. */
+private val MOVING_ACTIVITIES = setOf(
+    Activity.WALKING, Activity.ON_FOOT, Activity.RUNNING, Activity.IN_VEHICLE, Activity.ON_BICYCLE,
+)
+
+/**
+ * True when `motion` says nothing `activity` has not already said.
+ *
+ * Deliberately not "motion is known" — the point is agreement, not presence. `activity=still
+ * motion=stationary` is one fact twice; `activity=still motion=moving` is two sensors disagreeing,
+ * which is worth the tokens because it tells the model its own senses are unsure.
+ */
+private fun ContextState.motionEchoesActivity(): Boolean = when (motion) {
+    MotionState.STATIONARY -> activity == Activity.STILL
+    MotionState.MOVING -> activity in MOVING_ACTIVITIES
+    MotionState.UNKNOWN -> false
 }
 
 /**

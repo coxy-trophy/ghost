@@ -245,6 +245,16 @@ class ContextStateTest {
             "dwell with no activity" to
                 ContextState(activitySinceMs = System.currentTimeMillis() - 42 * 60_000L),
             "at home" to ContextState(locationBucket = LocationBucket.HOME),
+            "face down in a pocket, collapsed" to ContextState(
+                activity = Activity.STILL,
+                motion = MotionState.STATIONARY,
+                inPocket = true,
+                proximity = Proximity.NEAR,
+            ),
+            "motion echoing activity only" to
+                ContextState(activity = Activity.STILL, motion = MotionState.STATIONARY),
+            "pocket covering proximity only" to
+                ContextState(inPocket = true, proximity = Proximity.NEAR),
             "away" to ContextState(locationBucket = LocationBucket.AWAY),
         )
         for ((name, state) in states) {
@@ -327,6 +337,70 @@ class ContextStateTest {
             0L,
             wentUnknown.activitySinceMs,
         )
+    }
+
+    // --- one fact, one clause ---
+    // A phone face-down in a pocket used to emit activity, motion, posture, pocket and proximity
+    // all describing the same situation. The rule is: say it when it adds or contradicts, never
+    // when it echoes.
+
+    @Test
+    fun motionIsSilentWhenItMerelyAgreesWithActivity() {
+        val still = ContextState(activity = Activity.STILL, motion = MotionState.STATIONARY).toPromptBlock()
+        assertTrue(still, still.contains("activity=still"))
+        assertFalse("stationary adds nothing to still: $still", still.contains("motion="))
+
+        val walking = ContextState(activity = Activity.WALKING, motion = MotionState.MOVING).toPromptBlock()
+        assertFalse("moving adds nothing to walking: $walking", walking.contains("motion="))
+    }
+
+    @Test
+    fun motionSpeaksWhenItDisagreesOrStandsAlone() {
+        // Two sensors disagreeing is worth the tokens — it tells the model its senses are unsure.
+        val conflict = ContextState(activity = Activity.STILL, motion = MotionState.MOVING).toPromptBlock()
+        assertTrue(conflict, conflict.contains("motion=moving"))
+
+        // With no activity reading it is the only movement signal there is.
+        val alone = ContextState(motion = MotionState.STATIONARY).toPromptBlock()
+        assertTrue(alone, alone.contains("motion=stationary"))
+    }
+
+    @Test
+    fun proximityIsSilentWhenThePocketSensorAlreadySaidIt() {
+        val pocketed = ContextState(inPocket = true, proximity = Proximity.NEAR).toPromptBlock()
+        assertTrue(pocketed, pocketed.contains("pocket=yes"))
+        assertFalse("near is what being in a pocket means: $pocketed", pocketed.contains("proximity="))
+    }
+
+    @Test
+    fun proximitySpeaksWhenItContradictsThePocketSensor() {
+        val odd = ContextState(inPocket = true, proximity = Proximity.FAR).toPromptBlock()
+        assertTrue(odd, odd.contains("pocket=yes"))
+        assertTrue("a pocket reading FAR is a disagreement worth stating: $odd", odd.contains("proximity=far"))
+    }
+
+    @Test
+    fun proximityIsUnaffectedWhenThereIsNoPocketReading() {
+        assertTrue(ContextState(proximity = Proximity.NEAR).toPromptBlock().contains("proximity=near"))
+        assertTrue(ContextState(inPocket = false, proximity = Proximity.NEAR).toPromptBlock().contains("proximity=near"))
+        assertTrue(ContextState().toPromptBlock().contains("proximity=unknown"))
+    }
+
+    @Test
+    fun theFaceDownInAPocketCaseSaysEachThingOnce() {
+        // The exact state that motivated this: five clauses for one situation, now three.
+        val block = ContextState(
+            activity = Activity.STILL,
+            motion = MotionState.STATIONARY,
+            posture = Posture.FACE_DOWN,
+            inPocket = true,
+            proximity = Proximity.NEAR,
+        ).toPromptBlock()
+        assertTrue(block, block.contains("activity=still"))
+        assertTrue(block, block.contains("posture=face_down"))
+        assertTrue(block, block.contains("pocket=yes"))
+        assertFalse(block, block.contains("motion="))
+        assertFalse(block, block.contains("proximity="))
     }
 
     /**
