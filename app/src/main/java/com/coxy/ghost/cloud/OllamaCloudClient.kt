@@ -57,6 +57,18 @@ class OllamaCloudClient(
         val body = JSONObject().apply {
             put("messages", messages)
             put("stream", false)
+            // Reasoning off.
+            //
+            // qwen3.5 is a thinking model, and `num_predict` caps *all* generated tokens — thinking
+            // included. With the cap at 512 the model spent the entire budget reasoning and returned
+            // `content=""` with `done_reason=length`: measured 1709 characters of thinking and zero
+            // of answer. The router read that as an empty reply and fell back to the local 1.5B, so
+            // a working key and a valid model name still produced nothing but dumb answers.
+            //
+            // GHOST wants one or two spoken sentences, never a visible chain of thought, so the
+            // reasoning is pure cost even when it fits. Accepted by the gpt-oss fallbacks too, which
+            // simply ignore it.
+            put("think", false)
             put("options", JSONObject().apply {
                 put("num_predict", predictLength)
             })
@@ -111,8 +123,20 @@ class OllamaCloudClient(
 
         val json = JSONObject(responseText)
         if (json.optBoolean("done", false)) {
-            json.optJSONObject("message")?.optString("content")?.trim()
-                ?: throw IOException("Ollama response missing message.content")
+            val message = json.optJSONObject("message")
+            val content = message?.optString("content")?.trim()
+            if (content.isNullOrEmpty()) {
+                // Say why it was empty rather than just that it was. An answer lost to the token
+                // budget looks identical to a refusal or a bad model name from the caller's side,
+                // and telling them apart cost a live curl session the first time.
+                val thinking = message?.optString("thinking")?.length ?: 0
+                val reason = json.optString("done_reason", "unknown")
+                throw IOException(
+                    "Ollama returned no content (done_reason=$reason, thinking=$thinking chars)" +
+                        if (thinking > 0) " — the model reasoned past num_predict; send think=false" else ""
+                )
+            }
+            content
         } else {
             json.optString("response").ifBlank {
                 throw IOException("Ollama response did not finish: $responseText")
