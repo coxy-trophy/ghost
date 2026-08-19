@@ -78,6 +78,24 @@ class TraitNudgerTest {
     }
 
     @Test
+    fun oneCorrectionIsAudibleInThePrompt() {
+        // The whole point of the feature. Before the middle bands existed, a single correction from
+        // the baseline landed at 63 — inside a dead zone where the block still read "balanced
+        // voice" — so GHOST acknowledged the change, stored it, and the model was never told.
+        val baseline = PersonalityTranslator.baseline()
+        assertTrue(
+            "baseline should say nothing in particular",
+            PersonalityTranslator.profileToPromptBlock(baseline).contains("balanced voice"),
+        )
+
+        val corrected = TraitNudger.apply(baseline, TraitSignal("bluntness", +1, "be more direct"))
+        assertNotNull(corrected)
+        val block = PersonalityTranslator.profileToPromptBlock(corrected!!)
+        assertTrue("one correction must change the prompt, got: $block", !block.contains("balanced voice"))
+        assertTrue("should describe directness, got: $block", block.contains("direct"))
+    }
+
+    @Test
     fun theAcknowledgementNamesTheDirectionInPlainWords() {
         assertTrue(TraitNudger.acknowledgement(lessSarcastic, 50, 38).contains("less sarcastic"))
         assertTrue(TraitNudger.acknowledgement(moreSarcastic, 50, 62).contains("more sarcastic"))

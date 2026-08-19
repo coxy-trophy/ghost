@@ -18,55 +18,96 @@ object PersonalityTranslator {
 
     /** A compact behavioral instruction block derived from the trait profile. */
     fun profileToPromptBlock(profile: PersonalityProfile): String {
-        val parts = mutableListOf<String>()
         val p = clamp(profile)
-
-        // Humor
-        when {
-            p.humor >= 70 -> parts += "You joke often, and your humor can be dry."
-            p.humor <= 30 -> parts += "You keep a straight tone; avoid jokes."
-        }
-        // Sarcasm
-        when {
-            p.sarcasm >= 70 -> parts += "You may be wry or gently cutting when it fits the moment."
-            p.sarcasm <= 30 -> parts += "You are earnest, not sarcastic."
-        }
-        // Bluntness
-        when {
-            p.bluntness >= 70 -> parts += "You are direct and plain-spoken; disagree openly when you think it's right."
-            p.bluntness <= 30 -> parts += "You soften disagreement and phrase feedback carefully."
-        }
-        // Warmth
-        when {
-            p.warmth >= 70 -> parts += "Your tone is warm and supportive."
-            p.warmth <= 30 -> parts += "Your tone is neutral and matter-of-fact."
-        }
-        // Formality
-        when {
-            p.formality >= 70 -> parts += "You use measured, formal language."
-            p.formality <= 30 -> parts += "You use casual, conversational language."
-        }
-        // Verbosity
-        when {
-            p.verbosity >= 70 -> parts += "You give longer, exploratory answers."
-            p.verbosity <= 30 -> parts += "You keep answers short and clipped."
-        }
-        // Curiosity
-        when {
-            p.curiosity >= 70 -> parts += "You ask follow-up questions when useful."
-            p.curiosity <= 30 -> parts += "You only ask questions when necessary."
-        }
-        // Initiative
-        when {
-            p.initiative >= 70 -> parts += "You proactively suggest next steps when you see something useful to do."
-            p.initiative <= 30 -> parts += "You wait to be asked before suggesting actions."
-        }
+        val parts = listOfNotNull(
+            band(
+                p.humor,
+                "You joke often, and your humor can be dry.",
+                "You are quick to find the funny side.",
+                "You are sparing with jokes.",
+                "You keep a straight tone; avoid jokes.",
+            ),
+            band(
+                p.sarcasm,
+                "You may be wry or gently cutting when it fits the moment.",
+                "A dry edge shows now and then.",
+                "You rarely reach for irony.",
+                "You are earnest, not sarcastic.",
+            ),
+            band(
+                p.bluntness,
+                "You are direct and plain-spoken; disagree openly when you think it's right.",
+                "You lean direct — say the thing rather than circling it.",
+                "You take the edge off what you say.",
+                "You soften disagreement and phrase feedback carefully.",
+            ),
+            band(
+                p.warmth,
+                "Your tone is warm and supportive.",
+                "There is warmth under how you say things.",
+                "You keep a little distance in tone.",
+                "Your tone is neutral and matter-of-fact.",
+            ),
+            band(
+                p.formality,
+                "You use measured, formal language.",
+                "You keep your language a touch more composed.",
+                "You speak loosely and informally.",
+                "You use casual, conversational language.",
+            ),
+            band(
+                p.verbosity,
+                "You give longer, exploratory answers.",
+                "You allow yourself a little more room to explain.",
+                "You lean brief — fewer words rather than more.",
+                "You keep answers short and clipped.",
+            ),
+            band(
+                p.curiosity,
+                "You ask follow-up questions when useful.",
+                "You follow up when something is worth pulling on.",
+                "You mostly let things lie unless they matter.",
+                "You only ask questions when necessary.",
+            ),
+            band(
+                p.initiative,
+                "You proactively suggest next steps when you see something useful to do.",
+                "You will offer a next step when one is obvious.",
+                "You hold back from suggesting unless it matters.",
+                "You wait to be asked before suggesting actions.",
+            ),
+        )
 
         return if (parts.isEmpty()) {
             "[PERSONALITY default: balanced voice.]"
         } else {
             "[PERSONALITY " + parts.joinToString(" ") + "]"
         }
+    }
+
+    /**
+     * Turn a 0-100 trait into a sentence, or null when it is close enough to the middle to say
+     * nothing about.
+     *
+     * The middle bands exist because without them the sliders were nearly inert. Only >=70 and <=30
+     * produced any text, so a trait sitting at 63 read as "balanced voice" — and Phase 6.4's drift
+     * moves a trait a quarter of the way to its bound at a time, which from a baseline of 50 lands
+     * exactly in that dead zone. GHOST would say "noted, more direct", store the change, and the
+     * model would never be told. A correction that produces no audible difference is
+     * indistinguishable from being ignored.
+     */
+    private fun band(
+        value: Int,
+        strongHigh: String,
+        leanHigh: String,
+        leanLow: String,
+        strongLow: String,
+    ): String? = when {
+        value >= 70 -> strongHigh
+        value >= 58 -> leanHigh
+        value <= 30 -> strongLow
+        value <= 42 -> leanLow
+        else -> null
     }
 
     /** The hard floors that sit underneath any trait tuning. */
