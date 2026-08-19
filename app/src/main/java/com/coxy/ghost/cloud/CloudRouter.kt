@@ -97,8 +97,21 @@ class CloudRouter(
                 local(fullPrompt, Brain.LOCAL_CLOUD_FAILED, allowLocalFallback)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Cloud routing failed — falling back to local engine", e)
-            local(fullPrompt, Brain.LOCAL_CLOUD_FAILED, allowLocalFallback)
+            if (isAuthFailure(e)) {
+                // Deliberately louder than the rest of this class. A refused key is the one failure
+                // here that never recovers on its own, and the only signal it ever gave was replies
+                // getting worse.
+                Log.e(
+                    TAG,
+                    "CLOUD KEY REJECTED (401/403) — every reply will come from the local 1.5B until " +
+                        "a valid key is stored. Set one via the Cloud screen or ACTION_SET_CLOUD_KEY.",
+                    e,
+                )
+                local(fullPrompt, Brain.LOCAL_KEY_REJECTED, allowLocalFallback)
+            } else {
+                Log.w(TAG, "Cloud routing failed — falling back to local engine", e)
+                local(fullPrompt, Brain.LOCAL_CLOUD_FAILED, allowLocalFallback)
+            }
         }
     }
 
@@ -113,6 +126,23 @@ class CloudRouter(
      * context in the request and leaves no residue, so synthetic prompts belong there or nowhere.
      * When cloud is unavailable such a caller gets an empty flow and is expected to stay quiet.
      */
+    /**
+     * Whether a failure was the server refusing the credential rather than the network misbehaving.
+     *
+     * Matched on the message because [OllamaCloudClient] raises `IOException("HTTP 401: ...")` and
+     * wraps the chain's failures in another IOException, so the status only survives as text. Both
+     * the cause chain and the wrapper are checked.
+     */
+    private fun isAuthFailure(e: Throwable): Boolean {
+        var t: Throwable? = e
+        while (t != null) {
+            val m = t.message ?: ""
+            if (m.contains("HTTP 401") || m.contains("HTTP 403")) return true
+            t = t.cause
+        }
+        return false
+    }
+
     private fun local(prompt: String, why: Brain, allowLocal: Boolean = true): Flow<String> {
         lastBrain = why
         if (!allowLocal) {
@@ -171,6 +201,18 @@ class CloudRouter(
             LOCAL_NO_KEY("local · no API key"),
             LOCAL_OFFLINE("local · offline"),
             LOCAL_CLOUD_FAILED("local · cloud failed"),
+
+            /**
+             * The key was reached and refused — 401/403.
+             *
+             * Separate from [LOCAL_CLOUD_FAILED] because the two need different reactions and the
+             * old code could not tell them apart. A network failure is weather; a rejected key is
+             * broken configuration that will never fix itself, and it stayed unnoticed for a week
+             * while every reply quietly came from the 1.5B. Worse, it masked a second fault: the
+             * whole model chain had gone stale behind it, invisible because no request ever got
+             * past auth to test a model name.
+             */
+            LOCAL_KEY_REJECTED("local · KEY REJECTED"),
             UNKNOWN("—"),
         }
 

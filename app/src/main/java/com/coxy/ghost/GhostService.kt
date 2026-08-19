@@ -44,6 +44,7 @@ import com.coxy.ghost.perception.RadioWatcher
 import com.coxy.ghost.perception.RetentionManager
 import com.coxy.ghost.action.ActionExecutor
 import com.coxy.ghost.action.ActionRunner
+import com.coxy.ghost.cloud.CloudKeyStorage
 import com.coxy.ghost.cloud.CloudRouter
 import com.coxy.ghost.initiative.InitiativeManager
 import com.coxy.ghost.personality.PersonalityRepository
@@ -440,6 +441,28 @@ class GhostService : LifecycleService() {
                     perception?.reloadHome()
                 }
             }
+            ACTION_SET_CLOUD_KEY -> {
+                // Store or clear the Ollama key without the UI.
+                //
+                // This exists because the stored key outranks the one baked into the build, so a
+                // stale stored key cannot be fixed by rebuilding — which is exactly the state a
+                // rejected key leaves behind. `--es key ""` (or --ez clear true) removes the stored
+                // value and lets the baked one take over.
+                //
+                // The key itself is never logged: it is the one value in this service worth
+                // keeping out of logcat.
+                val clear = intent.getBooleanExtra(EXTRA_CLEAR, false)
+                val key = intent.getStringExtra(EXTRA_KEY)
+                lifecycleScope.launch {
+                    if (clear || key.isNullOrBlank()) {
+                        CloudKeyStorage.setKey(applicationContext, null)
+                        Log.i(TAG, "stored cloud key cleared — the build's baked-in key now applies")
+                    } else {
+                        CloudKeyStorage.setKey(applicationContext, key)
+                        Log.i(TAG, "stored cloud key replaced (${key.length} chars)")
+                    }
+                }
+            }
             ACTION_SET_INITIATIVE -> {
                 // Whether GHOST may start a conversation. Off unless deliberately turned on — the
                 // one other ambient behaviour that defaulted on was the always-listening mic.
@@ -732,6 +755,7 @@ class GhostService : LifecycleService() {
         const val ACTION_SET_MODEL_PATH = "com.coxy.ghost.action.SET_MODEL_PATH"
         const val ACTION_SET_HOME = "com.coxy.ghost.action.SET_HOME"
         const val ACTION_SET_INITIATIVE = "com.coxy.ghost.action.SET_INITIATIVE"
+        const val ACTION_SET_CLOUD_KEY = "com.coxy.ghost.action.SET_CLOUD_KEY"
         const val EXTRA_FACING = "facing"
         const val EXTRA_PATH = "path"
         const val EXTRA_LABEL = "label"
@@ -743,6 +767,7 @@ class GhostService : LifecycleService() {
         const val EXTRA_LON = "lon"
         const val EXTRA_RADIUS = "radius"
         const val EXTRA_CLEAR = "clear"
+        const val EXTRA_KEY = "key"
 
         /** Time to let MicListener's AudioRecord/recognizer release the mic before we grab it. */
         private const val KWS_MIC_RELEASE_MS = 600L

@@ -52,6 +52,7 @@
     <string name="ghost_nav_chat">Chat</string>
     <string name="ghost_nav_live">Live</string>
     <string name="ghost_nav_system">System</string>
+    <string name="ghost_nav_senses">Senses</string>
 
     <!-- Live mode -->
     <string name="ghost_live_idle">DORMANT</string>

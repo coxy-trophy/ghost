@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GHOST — Senses</title>
+<style>
+  /* Obsidian Futurism, straight from the app's colors.xml so this screen is part of the app
+     rather than a web page embedded in it. True black base: black pixels are off pixels. */
+  :root {
+    --obsidian:   #000000;
+    --surface:    #0B0F10;
+    --container:  #14181A;
+    --high:       #1D2022;
+    --glass:      rgba(255,255,255,.03);
+    --border:     rgba(255,255,255,.10);
+    --divider:    rgba(255,255,255,.05);
+    --cyan:       #00F0FF;
+    --cyan-wash:  rgba(0,240,255,.08);
+    --cyan-deep:  #006970;
+    --ink:        #E0E3E5;
+    --ink-var:    #B9CACB;
+    --ink-mut:    #849495;
+    --error:      #FFB4AB;
+    --mono: ui-monospace, "Roboto Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, "Roboto", sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--obsidian); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    padding: 16px 14px 32px;
+  }
+  h2 {
+    font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+    letter-spacing: .16em; color: var(--ink-mut); font-weight: 600;
+    margin: 28px 0 10px;
+  }
+  h2:first-of-type { margin-top: 8px; }
+  p { margin: 0 0 10px; color: var(--ink-var); font-size: .88rem; max-width: 60ch; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px; margin-bottom: 10px;
+  }
+
+  /* ---- the live block ---- */
+  #block {
+    font-family: var(--mono); font-size: .8rem; line-height: 1.9;
+    color: var(--cyan); word-break: break-word; white-space: pre-wrap;
+  }
+  #dropped { margin-top: 10px; font-family: var(--mono); font-size: .72rem; color: var(--ink-mut); }
+  #dropped s { color: var(--ink-mut); }
+  .counts { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
+  .counts div { display: flex; flex-direction: column; }
+  .counts b {
+    font-family: var(--mono); font-size: 1.2rem; color: var(--ink);
+    font-variant-numeric: tabular-nums; font-weight: 600; line-height: 1.1;
+  }
+  .counts span {
+    font-family: var(--mono); font-size: .6rem; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--ink-mut);
+  }
+
+  /* ---- live sense rows ---- */
+  .grp { font-family: var(--mono); font-size: .62rem; text-transform: uppercase;
+         letter-spacing: .14em; color: var(--ink-mut); margin: 14px 0 6px; }
+  .row {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    padding: 7px 0; border-bottom: 1px solid var(--divider);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .k { font-family: var(--mono); font-size: .74rem; color: var(--ink-mut); letter-spacing: .04em; }
+  .row .v { font-family: var(--mono); font-size: .82rem; color: var(--ink); text-align: right; }
+  .row .v.off { color: var(--ink-mut); }
+  .row .v.err { color: var(--error); }
+  .row .v.on  { color: var(--cyan); }
+
+  /* ---- reference ---- */
+  details { border-top: 1px solid var(--divider); }
+  details summary {
+    list-style: none; cursor: pointer; padding: 12px 0;
+    font-family: var(--mono); font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .13em; color: var(--ink-var);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::after { content: "+"; color: var(--ink-mut); font-size: 1rem; }
+  details[open] summary::after { content: "−"; }
+  details .body { padding-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 6px 0; border-bottom: 1px solid var(--divider); vertical-align: top; font-size: .8rem; }
+  td.c { font-family: var(--mono); color: var(--ink); white-space: nowrap; padding-right: 12px; }
+  td.w { color: var(--ink-var); }
+  tr:last-child td { border-bottom: 0; }
+  .note { font-size: .82rem; color: var(--ink-var); margin-bottom: 12px; }
+  .note b { color: var(--ink); font-weight: 600; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+  header .t { font-family: var(--mono); font-size: .95rem; letter-spacing: .1em; color: var(--cyan); font-weight: 600; }
+  header .b { font-family: var(--mono); font-size: .64rem; letter-spacing: .1em; color: var(--ink-mut); text-transform: uppercase; }
+  .stale { color: var(--error); }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="t">SENSES</span>
+  <span class="b" id="build">—</span>
+</header>
+
+<h2>What she is being told, right now</h2>
+<div class="card">
+  <div id="block">[CONTEXT …]</div>
+  <div id="dropped"></div>
+  <div class="counts">
+    <div><b id="c-fields">—</b><span>fields</span></div>
+    <div><b id="c-clauses">—</b><span>clauses</span></div>
+    <div><b id="c-senses">—</b><span>senses</span></div>
+  </div>
+</div>
+
+<h2>Live readings</h2>
+<div class="card" id="live"><p>Waiting for perception…</p></div>
+
+<h2>Reference</h2>
+
+<details>
+  <summary>Clause grammar</summary>
+  <div class="body">
+    <p class="note">Only the first four render unconditionally — and even those count as nothing while they read <b>unknown</b>.</p>
+    <table>
+      <tr><td class="c">activity=</td><td class="w">Always. Carries confidence and how long it has held.</td></tr>
+      <tr><td class="c">location=</td><td class="w">Always. Needs a stored home point to say more than unknown.</td></tr>
+      <tr><td class="c">speed=</td><td class="w">Above 0 km/h.</td></tr>
+      <tr><td class="c">light=</td><td class="w">Always, with raw lux once measured.</td></tr>
+      <tr><td class="c">proximity=</td><td class="w">Always — unless the pocket sensor already said it.</td></tr>
+      <tr><td class="c">steps=</td><td class="w">Above 0 per minute.</td></tr>
+      <tr><td class="c">mic=</td><td class="w">Listening, closed, or unavailable.</td></tr>
+      <tr><td class="c">heard=</td><td class="w">An utterance arrived. Cut to 15 words.</td></tr>
+      <tr><td class="c">camera=</td><td class="w">A frame was captured. Brightness and facing only — never content.</td></tr>
+      <tr><td class="c">posture=</td><td class="w">Known.</td></tr>
+      <tr><td class="c">pocket=yes</td><td class="w">Only when true.</td></tr>
+      <tr><td class="c">heading=</td><td class="w">A compass fix exists.</td></tr>
+      <tr><td class="c">motion=</td><td class="w">Only when it disagrees with activity, or stands alone.</td></tr>
+      <tr><td class="c">just_picked_up</td><td class="w">Within 90 seconds.</td></tr>
+      <tr><td class="c">nearby=</td><td class="w">Count above zero. Names only for already-paired devices.</td></tr>
+      <tr><td class="c">call=</td><td class="w">Ringing or in a call. Idle is the boring default.</td></tr>
+      <tr><td class="c">signal=</td><td class="w">Weak, or during a call.</td></tr>
+      <tr><td class="c">nfc:on</td><td class="w">Only when on.</td></tr>
+    </table>
+  </div>
+</details>
+
+<details>
+  <summary>The three rules</summary>
+  <div class="body">
+    <p class="note"><b>Silent unless it says something.</b> The block rides on every prompt into a small model with an 8k window, so a sense that adds nothing must cost nothing. Twelve registrations, and an idle phone spends what it did with three.</p>
+    <p class="note"><b>The guard cannot disagree with the block.</b> Whether to send it and what it says come from one render pass, so they cannot drift apart.</p>
+    <p class="note"><b>Buckets leave, values stay.</b> A GPS fix becomes <i>home</i>; a stranger's phone becomes a number; a camera frame becomes a brightness. What cannot be reconstructed from the block cannot leak through it.</p>
+  </div>
+</details>
+
+<details>
+  <summary>Deliberately not sensed</summary>
+  <div class="body">
+    <table>
+      <tr><td class="c">gyro / accel / mag</td><td class="w">The rotation vector is already the HAL's fusion of all three. Registering them would wake the CPU at 100 Hz to re-derive what arrives anyway.</td></tr>
+      <tr><td class="c">biometrics</td><td class="w">Fingerprint and face are authentication APIs, not readable sensors. There is no honest field to fill.</td></tr>
+      <tr><td class="c">NFC tags</td><td class="w">Needs a physical tap into a foreground reader mode, which a background daemon cannot do.</td></tr>
+      <tr><td class="c">continuous vision</td><td class="w">She cannot ingest pixels. Describing a frame's contents would be inventing something and handing it over as real.</td></tr>
+      <tr><td class="c">always-on listening</td><td class="w">Removed, not deferred — the spotter saturated on room noise. The mic opens when you open it.</td></tr>
+    </table>
+  </div>
+</details>
+
+<script>
+  // Called from Kotlin on every ContextStore change. The page is deliberately dumb: everything
+  // shown here is computed on the Kotlin side by the same code that builds the real prompt, so
+  // this screen can never disagree with what GHOST is actually told.
+  function ghostUpdate(s) {
+    document.getElementById('build').textContent = s.build || '';
+    document.getElementById('block').textContent = s.block || '[CONTEXT …]';
+
+    var dropped = document.getElementById('dropped');
+    dropped.innerHTML = (s.dropped && s.dropped.length)
+      ? 'dropped as echo: ' + s.dropped.map(function (d) { return '<s>' + d + '</s>'; }).join(' ')
+      : '';
+
+    document.getElementById('c-fields').textContent  = s.fields;
+    document.getElementById('c-clauses').textContent = s.clauses;
+    document.getElementById('c-senses').textContent  = s.senses;
+
+    var live = document.getElementById('live');
+    if (!s.groups || !s.groups.length) { live.innerHTML = '<p>Waiting for perception…</p>'; return; }
+    var html = '';
+    s.groups.forEach(function (g) {
+      html += '<div class="grp">' + g.name + '</div>';
+      g.items.forEach(function (it) {
+        html += '<div class="row"><span class="k">' + it.k + '</span>' +
+                '<span class="v ' + (it.s || '') + '">' + it.v + '</span></div>';
+      });
+    });
+    live.innerHTML = html;
+  }
+</script>
+</body>
+</html>

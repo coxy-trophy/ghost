@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Senses: a source with two arcs radiating from it. Reads as "something is being picked up" rather
+  than as a specific sensor, which suits a screen covering twelve of them.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?attr/colorControlNormal">
+
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,17.5m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+
+    <path
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M7.8,13.2a5.9,5.9 0,0 1,8.4 0" />
+
+    <path
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M4.8,9.6a10.2,10.2 0,0 1,14.4 0" />
+</vector>

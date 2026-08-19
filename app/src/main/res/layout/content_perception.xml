@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Senses screen. A WebView rather than native views because the content is a dense reference
+  document with live values threaded through it; laying that out in XML would be a lot of markup
+  for something that is fundamentally a page. It loads one bundled asset, has network loads
+  blocked, and its only JavaScript entry point is the state PerceptionPanel pushes in.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/screen_perception"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1"
+    android:background="@color/obsidian"
+    android:visibility="gone">
+
+    <WebView
+        android:id="@+id/perception_web"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+</FrameLayout>

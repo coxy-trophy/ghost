@@ -95,6 +95,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var screenChat: View
     private lateinit var screenLive: View
     private lateinit var screenSystem: View
+    private lateinit var screenPerception: View
+
+    /** The Senses screen. Fed from ContextStore by the same collector that drives the chips. */
+    private lateinit var perceptionPanel: com.coxy.ghost.ui.PerceptionPanel
     private lateinit var sensorChips: LinearLayout
     private lateinit var sensorCard: View
     private lateinit var orb: com.coxy.ghost.ui.OrbView
@@ -180,6 +184,9 @@ class MainActivity : AppCompatActivity() {
         screenChat = findViewById(R.id.screen_chat)
         screenLive = findViewById(R.id.screen_live)
         screenSystem = findViewById(R.id.screen_system)
+        screenPerception = findViewById(R.id.screen_perception)
+        perceptionPanel = com.coxy.ghost.ui.PerceptionPanel(findViewById(R.id.perception_web))
+        perceptionPanel.attach()
         sensorChips = findViewById(R.id.sensor_chips)
         sensorCard = findViewById(R.id.sensor_card)
         orb = findViewById(R.id.orb)
@@ -189,6 +196,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.nav_chat).setOnClickListener { showTab(Tab.CHAT) }
         findViewById<View>(R.id.nav_live).setOnClickListener { showTab(Tab.LIVE) }
         findViewById<View>(R.id.nav_system).setOnClickListener { showTab(Tab.SYSTEM) }
+        findViewById<View>(R.id.nav_senses).setOnClickListener { showTab(Tab.SENSES) }
         findViewById<View>(R.id.live_exit).setOnClickListener { showTab(Tab.CHAT) }
         findViewById<View>(R.id.live_mute).setOnClickListener { toggleMic() }
         livePttHint = findViewById(R.id.live_ptt_hint)
@@ -365,7 +373,7 @@ class MainActivity : AppCompatActivity() {
         btnMic.isEnabled = GhostService.isRunning
     }
 
-    private enum class Tab { CHAT, LIVE, SYSTEM }
+    private enum class Tab { CHAT, LIVE, SYSTEM, SENSES }
 
     private var currentTab = Tab.CHAT
 
@@ -378,6 +386,7 @@ class MainActivity : AppCompatActivity() {
         screenChat.visibility = if (tab == Tab.CHAT) View.VISIBLE else View.GONE
         screenLive.visibility = if (tab == Tab.LIVE) View.VISIBLE else View.GONE
         screenSystem.visibility = if (tab == Tab.SYSTEM) View.VISIBLE else View.GONE
+        screenPerception.visibility = if (tab == Tab.SENSES) View.VISIBLE else View.GONE
 
         val on = ContextCompat.getColor(this, R.color.cyan)
         val off = ContextCompat.getColor(this, R.color.on_surface_muted)
@@ -392,6 +401,7 @@ class MainActivity : AppCompatActivity() {
         paint(R.id.nav_chat_icon, R.id.nav_chat_label, R.id.nav_chat, tab == Tab.CHAT)
         paint(R.id.nav_live_icon, R.id.nav_live_label, R.id.nav_live, tab == Tab.LIVE)
         paint(R.id.nav_system_icon, R.id.nav_system_label, R.id.nav_system, tab == Tab.SYSTEM)
+        paint(R.id.nav_senses_icon, R.id.nav_senses_label, R.id.nav_senses, tab == Tab.SENSES)
     }
 
     /**
@@ -402,6 +412,9 @@ class MainActivity : AppCompatActivity() {
      */
     private fun renderPerception(cs: com.coxy.ghost.perception.ContextState) {
         perceptionTv.text = if (cs.hasSignal()) cs.activity.name.lowercase() else getString(R.string.ghost_perception_idle)
+        // The Senses screen reads the same state object as the chips, so the two can never
+        // disagree about what is being sensed.
+        perceptionPanel.render(cs)
 
         data class Chip(val text: String, val live: Boolean)
         val chips = buildList {

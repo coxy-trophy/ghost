@@ -70,6 +70,7 @@
         <include layout="@layout/content_chat" />
         <include layout="@layout/content_live" />
         <include layout="@layout/content_system" />
+        <include layout="@layout/content_perception" />
     </FrameLayout>
 
     <!-- Bottom nav -->
@@ -169,6 +170,34 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="@string/ghost_nav_system"
+                style="@style/TextAppearance.Ghost.Label" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/nav_senses"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:id="@+id/nav_senses_icon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_senses"
+                android:contentDescription="@null"
+                app:tint="@color/on_surface_muted" />
+
+            <TextView
+                android:id="@+id/nav_senses_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/ghost_nav_senses"
                 style="@style/TextAppearance.Ghost.Label" />
         </LinearLayout>
     </LinearLayout>

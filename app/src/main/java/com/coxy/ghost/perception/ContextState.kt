@@ -318,6 +318,31 @@ private fun ContextState.motionEchoesActivity(): Boolean = when (motion) {
 fun ContextState.hasSignal(): Boolean = renderClauses().carriesInfo
 
 /**
+ * How many clauses the block currently carries.
+ *
+ * Taken from the same render pass as [toPromptBlock] rather than counted by splitting the string,
+ * because clauses legitimately contain spaces (`camera=captured(back,br 0)`, `heard="..."`).
+ */
+fun ContextState.clauseCount(): Int = renderClauses().parts.size
+
+/**
+ * Clauses that were suppressed because something already in the block says the same thing.
+ *
+ * Exists so the Senses screen can show what was dropped rather than silently rendering a shorter
+ * block — the collapse is a deliberate editorial choice and is worth being able to see.
+ */
+fun ContextState.suppressedClauses(): List<String> {
+    val out = mutableListOf<String>()
+    if (motion != MotionState.UNKNOWN && motionEchoesActivity()) {
+        out += "motion=${motion.name.lowercase()}"
+    }
+    if (inPocket == true && proximity == Proximity.NEAR) {
+        out += "proximity=${proximity.name.lowercase()}"
+    }
+    return out
+}
+
+/**
  * The one-line ASCII context block prepended to each user message before [sendUserPrompt].
  * Kept compact to minimise token cost on a 1.5B model with an 8k context budget — transcripts are
  * hard-truncated to ~15 words, and the camera is reported as metadata only (the model cannot see).

@@ -133,22 +133,22 @@ class OllamaCloudClient(
          * returns the first model that answers, so a name that no longer resolves costs one failed
          * request rather than the whole query.
          *
-         * `qwen3.5` is the chosen model. The gpt-oss entries are kept behind it deliberately, not
-         * as leftovers: Ollama Cloud names normally carry a `-cloud` suffix, so a bare `qwen3.5`
-         * may resolve as a cloud model or may not, and until that is confirmed against the real API
-         * the fallbacks are what stand between a wrong name and GHOST silently dropping to the
-         * local 1.5B. `CloudRouter.lastBrain` and the chat chip will show which one actually
-         * answered.
+         * **Every name in the previous chain was wrong**, and it took a working key to notice.
+         * `qwen3.5`, `gpt-oss:120b-cloud` and `gpt-oss:20b-cloud` all 404 — the `-cloud` suffix no
+         * longer exists and `qwen3.5` needs its size tag. While the stored key was returning 401
+         * this was invisible: every query failed at auth before any model name was ever tested, so
+         * a second, independent fault sat behind the first one looking like nothing at all.
          *
-         * To confirm what this key can reach, once one is stored:
-         *   ./gradlew :app:connectedDebugAndroidTest \
-         *     -Pandroid.testInstrumentationRunnerArguments.class=com.coxy.ghost.cloud.CloudModelDiscoveryTest \
-         *     -Pandroid.testInstrumentationRunnerArguments.cloudLive=true
+         * These three are verified against `/api/tags` and a real `/api/chat` round trip on
+         * 2026-08-19 — 1.3-4.4s each, all returning content.
+         *
+         * To re-confirm what a key can reach:
+         *   curl -H "Authorization: Bearer \$KEY" https://ollama.com/api/tags
          */
         val DEFAULT_MODEL_CHAIN = listOf(
-            "qwen3.5",
-            "gpt-oss:120b-cloud",
-            "gpt-oss:20b-cloud"
+            "qwen3.5:397b",
+            "gpt-oss:120b",
+            "gpt-oss:20b"
         )
     }
 }
