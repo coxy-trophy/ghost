@@ -69,6 +69,28 @@ class MicListener(
         var isRunning: Boolean = false
             private set
 
+        /**
+         * The recognizer's raw loudness, for the UI only.
+         *
+         * Deliberately not [com.coxy.ghost.perception.ContextState.audioLevelDb]: that field is
+         * specified as dBFS and is rendered into the `[CONTEXT]` block the model reads, and this
+         * number is on `SpeechRecognizer`'s own undocumented scale (roughly -2..10). Telling the
+         * model "-2 dB" when the figure is not dB would be a lie in the prompt.
+         *
+         * A waveform does not need calibrated units — only something that genuinely moves when
+         * sound arrives — so it reads this instead. [RMS_FLOOR]/[RMS_CEIL] bound the observed range.
+         */
+        @Volatile
+        @JvmStatic
+        var lastRms: Float = RMS_FLOOR
+            internal set
+
+        /** Bottom of the recognizer's observed RMS range: treated as silence. */
+        const val RMS_FLOOR = -2f
+
+        /** Top of the recognizer's observed RMS range: treated as full deflection. */
+        const val RMS_CEIL = 10f
+
         /** Current mode, readable by the UI so the Live screen can reflect the real state. */
         @Volatile
         @JvmStatic
@@ -206,6 +228,8 @@ class MicListener(
         mode = MicMode.OFF
         isRunning = false
         consecutiveErrors = 0
+        // Nothing is listening, so the waveform must settle rather than hold its last reading.
+        lastRms = RMS_FLOOR
         ContextStore.update {
             it.copy(
                 micState = MicState.OFF,
@@ -298,6 +322,9 @@ class MicListener(
             // dBFS and is rendered as `mic=voice(NdB)` into the [CONTEXT] block the model reads.
             // With the AudioRecord path gone there is no honest dBFS source, so the field stays
             // unset rather than carrying a number in the wrong units.
+            //
+            // It does drive the Live waveform, which needs movement rather than units. See lastRms.
+            lastRms = rms
         }
 
         override fun onBufferReceived(buffer: ByteArray?) {}

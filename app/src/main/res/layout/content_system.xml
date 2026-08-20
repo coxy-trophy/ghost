@@ -20,7 +20,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/ghost_system_title"
-            android:textColor="@color/cyan"
+            android:textColor="@color/accent"
             android:textSize="22sp"
             android:textStyle="bold" />
 
@@ -45,7 +45,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/ghost_sec_runtime"
                 style="@style/TextAppearance.Ghost.Label"
-                android:textColor="@color/cyan" />
+                android:textColor="@color/accent" />
 
             <View android:layout_width="match_parent" android:layout_height="1dp"
                 android:layout_marginVertical="12dp" android:background="@color/divider" />
@@ -124,7 +124,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/ghost_sec_behaviour"
                 style="@style/TextAppearance.Ghost.Label"
-                android:textColor="@color/cyan" />
+                android:textColor="@color/accent" />
 
             <View android:layout_width="match_parent" android:layout_height="1dp"
                 android:layout_marginVertical="12dp" android:background="@color/divider" />
@@ -158,7 +158,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/ghost_sec_cloud"
                 style="@style/TextAppearance.Ghost.Label"
-                android:textColor="@color/cyan" />
+                android:textColor="@color/accent" />
 
             <View android:layout_width="match_parent" android:layout_height="1dp"
                 android:layout_marginVertical="12dp" android:background="@color/divider" />
@@ -192,7 +192,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/ghost_sec_core"
                 style="@style/TextAppearance.Ghost.Label"
-                android:textColor="@color/cyan" />
+                android:textColor="@color/accent" />
 
             <View android:layout_width="match_parent" android:layout_height="1dp"
                 android:layout_marginVertical="12dp" android:background="@color/divider" />

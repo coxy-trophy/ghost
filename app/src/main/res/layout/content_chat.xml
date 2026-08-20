@@ -1,93 +1,151 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Chat. Empty, it is the orb and one question; in use, the conversation replaces the orb and the
+  telemetry row and composer stay put. The sensor pills sit directly above the composer rather than
+  in a bordered card at the top, because they are context for what you are about to say.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/screen_chat"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <!-- Sensor telemetry. Chips are built at runtime from ContextState so the row shows only what
-         is actually known, the same rule the [CONTEXT] prompt block follows. -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:id="@+id/sensor_card"
-        android:orientation="vertical"
-        android:background="@drawable/bg_card"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginTop="8dp"
-        android:padding="12dp">
-
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none"
-            android:overScrollMode="never">
-
-            <LinearLayout
-                android:id="@+id/sensor_chips"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
-    </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/messages"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="8dp"
-        android:paddingBottom="8dp"
+        android:layout_weight="1">
+
+        <!--
+          The resting state. Hidden as soon as there is a conversation to show, so the orb is
+          something you return to rather than something the transcript has to scroll past.
+        -->
+        <LinearLayout
+            android:id="@+id/chat_hero"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingHorizontal="32dp">
+
+            <com.coxy.ghost.ui.OrbView
+                android:id="@+id/orb"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/ghost_greeting_sub"
+                style="@style/TextAppearance.Ghost.DisplaySub" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="24dp"
+                android:gravity="center"
+                android:text="@string/ghost_greeting"
+                style="@style/TextAppearance.Ghost.Display" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/messages"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingHorizontal="4dp"
+            android:paddingBottom="6dp"
+            android:clipToPadding="false"
+            android:scrollbars="none"
+            android:overScrollMode="never"
+            tools:listitem="@layout/item_message_assistant" />
+    </FrameLayout>
+
+    <!--
+      Sensor telemetry. Built at runtime from ContextState so the row shows only what is actually
+      known, the same rule the [CONTEXT] prompt block follows. It bleeds off both edges instead of
+      sitting in a card: the readings are a strip you can push around, not a panel.
+    -->
+    <HorizontalScrollView
+        android:id="@+id/sensor_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:paddingHorizontal="16dp"
         android:clipToPadding="false"
         android:scrollbars="none"
-        android:overScrollMode="never"
-        tools:listitem="@layout/item_message_assistant" />
+        android:overScrollMode="never">
+
+        <LinearLayout
+            android:id="@+id/sensor_chips"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
+        android:gravity="bottom"
         android:layout_marginHorizontal="16dp"
-        android:layout_marginBottom="10dp">
+        android:layout_marginBottom="8dp">
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_input"
+            android:background="@drawable/bg_input_bar"
             android:gravity="center_vertical"
-            android:paddingHorizontal="16dp">
+            android:paddingStart="18dp"
+            android:paddingEnd="6dp"
+            android:minHeight="54dp">
 
             <EditText
                 android:id="@+id/user_input"
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
+                android:layout_weight="1"
                 android:layout_height="wrap_content"
                 android:background="@null"
                 android:enabled="false"
                 android:maxLines="4"
-                android:paddingVertical="14dp"
+                android:paddingVertical="15dp"
                 android:textSize="15sp"
                 android:textColor="@color/on_surface"
                 android:textColorHint="@color/on_surface_muted"
                 android:textCursorDrawable="@null"
                 android:inputType="textCapSentences|textMultiLine"
                 android:hint="@string/ghost_input_hint" />
+
+            <!-- Grab a frame for GHOST to reason about. Same action as System's Capture. -->
+            <ImageButton
+                android:id="@+id/btn_capture_chat"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:enabled="false"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_camera"
+                android:scaleType="centerInside"
+                android:padding="10dp"
+                android:contentDescription="@string/ghost_capture"
+                app:tint="@color/on_surface_muted" />
         </LinearLayout>
 
+        <!-- The one saturated object on the screen. -->
         <ImageButton
             android:id="@+id/fab"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:layout_marginStart="10dp"
             android:enabled="false"
             android:background="@drawable/bg_send"
             android:scaleType="centerInside"
-            android:padding="13dp"
+            android:padding="15dp"
             android:contentDescription="@string/ghost_send"
             android:src="@drawable/outline_send_24"
-            app:tint="@color/black"
-            xmlns:app="http://schemas.android.com/apk/res-auto" />
+            app:tint="@color/white" />
     </LinearLayout>
 </LinearLayout>

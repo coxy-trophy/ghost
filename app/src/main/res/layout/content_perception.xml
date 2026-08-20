@@ -9,7 +9,7 @@
     android:id="@+id/screen_perception"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/obsidian"
+    android:background="@color/abyss"
     android:visibility="gone">
 
     <WebView

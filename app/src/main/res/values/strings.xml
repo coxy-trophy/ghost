@@ -12,6 +12,8 @@
     <string name="ghost_wordmark">GHOST</string>
     <string name="ghost_perception_idle">idle</string>
     <string name="ghost_status_idle">Offline. Pick a model to begin.</string>
+    <string name="ghost_greeting_sub">I’m here.</string>
+    <string name="ghost_greeting">What do you need?</string>
     <string name="ghost_input_hint">Say something to GHOST…</string>
     <string name="ghost_input_hint_offline">GHOST is not awake yet</string>
     <string name="ghost_send">Send</string>
@@ -55,16 +57,16 @@
     <string name="ghost_nav_senses">Senses</string>
 
     <!-- Live mode -->
-    <string name="ghost_live_idle">DORMANT</string>
-    <string name="ghost_live_listening">LISTENING…</string>
-    <string name="ghost_live_thinking">THINKING…</string>
-    <string name="ghost_live_speaking">SPEAKING…</string>
+    <string name="ghost_live_idle">Dormant</string>
+    <string name="ghost_live_listening">Listening…</string>
+    <string name="ghost_live_thinking">Thinking…</string>
+    <string name="ghost_live_speaking">Speaking…</string>
     <string name="ghost_live_mute">Mute microphone</string>
     <string name="ghost_live_exit">Leave live mode</string>
     <string name="ghost_live_latch">Leave the mic on</string>
-    <string name="ghost_ptt_hold">HOLD TO SPEAK</string>
-    <string name="ghost_ptt_listening">LISTENING — RELEASE TO SEND</string>
-    <string name="ghost_live_open">MIC ON — SPEAK ANY TIME</string>
+    <string name="ghost_ptt_hold">Hold to speak</string>
+    <string name="ghost_ptt_listening">Listening — release to send</string>
+    <string name="ghost_live_open">Mic on — speak any time</string>
     <string name="ghost_live_mic_denied">Microphone permission needed</string>
 
     <!-- System screen -->

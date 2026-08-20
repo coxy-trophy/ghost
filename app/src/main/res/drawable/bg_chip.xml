@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- One sensor reading. Glass pill, quiet until the channel is actually live. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="@color/glass_fill" />
     <stroke android:width="1dp" android:color="@color/glass_border" />

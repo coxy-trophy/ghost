@@ -1,47 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      "Obsidian Futurism", from the Stitch design system, with one deliberate change: the base is
-      true #000000 rather than the system's #101415, because this is an AMOLED panel and black
-      pixels are off pixels — on a daemon that may sit face-up on a desk all night, that is both
-      the look and the power budget.
+      "Ember Glass". The base is true #000000 rather than a lifted charcoal, because this is an
+      AMOLED panel and black pixels are off pixels — on a daemon that may sit face-up on a desk all
+      night, that is both the look and the power budget.
 
-      Cards sit just above the void so they read as objects in it rather than as a lighter page.
+      The accent ramp is a single temperature gradient — indigo → accent_soft → magenta → ember → amber —
+      and it is not decorative. GHOST reads it as heat: cool means the local 1.5B is answering,
+      hot means the cloud brain is. Every accent in the app is a sample from that one ramp, so the
+      whole surface shares a light source.
+
+      Chrome is glass, never a lighter page: a 4% white fill over the void with a 10% hairline.
+      Objects float in the dark rather than sitting on a panel.
     -->
 
     <!-- Base -->
-    <color name="obsidian">#FF000000</color>
-    <color name="surface">#FF0B0F10</color>
-    <color name="surface_container">#FF14181A</color>
-    <color name="surface_high">#FF1D2022</color>
+    <color name="abyss">#FF000000</color>
+    <color name="surface">#FF0A0A0C</color>
+    <color name="surface_container">#FF131317</color>
+    <color name="surface_high">#FF1C1C21</color>
 
-    <!-- Glass: 3% fill, 10% border — straight from the design system -->
-    <color name="glass_fill">#08FFFFFF</color>
-    <color name="glass_fill_hover">#14FFFFFF</color>
+    <!-- Glass -->
+    <color name="glass_fill">#0AFFFFFF</color>
+    <color name="glass_fill_hover">#1AFFFFFF</color>
     <color name="glass_border">#1AFFFFFF</color>
+    <color name="glass_border_bright">#2EFFFFFF</color>
     <color name="divider">#0DFFFFFF</color>
 
-    <!-- Primary: electric cyan -->
-    <color name="cyan">#FF00F0FF</color>
-    <color name="cyan_dim">#FF00DBE9</color>
-    <color name="cyan_deep">#FF006970</color>
-    <color name="cyan_glow">#2600F0FF</color>
-    <color name="cyan_wash">#1400F0FF</color>
+    <!-- The heat ramp, cool end to hot end -->
+    <color name="cool">#FF6B5BFF</color>
+    <color name="accent">#FFC13BFF</color>
+    <color name="accent_dim">#FFA430E0</color>
+    <color name="accent_deep">#FF4A1A6B</color>
+    <color name="accent_soft">#FFE3C4FF</color>
+    <color name="accent_hot">#FFFF2D9E</color>
+    <color name="ember">#FFFF3355</color>
+    <color name="amber">#FFFFA24D</color>
 
-    <!-- Secondary: vibrant violet -->
-    <color name="violet">#FFD0BCFF</color>
-    <color name="violet_deep">#FF571BC1</color>
+    <!-- Accent washes, for glows and active fills -->
+    <color name="accent_glow">#33C13BFF</color>
+    <color name="accent_wash">#1AC13BFF</color>
+    <color name="ember_wash">#26FF3355</color>
 
     <!-- Type -->
-    <color name="on_surface">#FFE0E3E5</color>
-    <color name="on_surface_variant">#FFB9CACB</color>
-    <color name="on_surface_muted">#FF849495</color>
-    <color name="on_accent">#FF00363A</color>
+    <color name="on_surface">#FFF2F0F5</color>
+    <color name="on_surface_variant">#FFB4B0BF</color>
+    <color name="on_surface_muted">#FF77737F</color>
+    <color name="on_accent">#FFFFFFFF</color>
 
     <!-- State -->
-    <color name="state_live">#FF00F0FF</color>
-    <color name="state_idle">#FF849495</color>
-    <color name="state_error">#FFFFB4AB</color>
+    <color name="state_live">#FFC13BFF</color>
+    <color name="state_idle">#FF77737F</color>
+    <color name="state_error">#FFFF6B7A</color>
 
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>

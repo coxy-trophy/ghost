@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The light Live mode sits in: a bloom rising off the bottom edge, hottest where the hold-to-speak
+  button is. It anchors the button in something rather than leaving it floating on flat black, and
+  it is the one place in the app where the ramp is allowed to fill real estate.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Violet outer halo, widest and faintest. -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.5"
+                android:centerY="1.0"
+                android:gradientRadius="95%p"
+                android:startColor="#73C13BFF"
+                android:centerColor="#26C13BFF"
+                android:endColor="#00C13BFF" />
+        </shape>
+    </item>
+    <!-- Magenta-to-ember body. -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.5"
+                android:centerY="1.0"
+                android:gradientRadius="62%p"
+                android:startColor="#B3FF2D9E"
+                android:centerColor="#4DFF3355"
+                android:endColor="#00FF3355" />
+        </shape>
+    </item>
+    <!-- The hot core, right at the bottom edge. -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.5"
+                android:centerY="1.0"
+                android:gradientRadius="30%p"
+                android:startColor="#CCFFD9DF"
+                android:centerColor="#59FF6B7A"
+                android:endColor="#00FF6B7A" />
+        </shape>
+    </item>
+</layer-list>

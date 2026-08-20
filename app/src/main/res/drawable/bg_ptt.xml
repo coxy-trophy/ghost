@@ -1,21 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Push-to-talk target. Circular rather than the 10dp soft-technical corners used elsewhere: this is
-  a thumb target held down for the length of a sentence, and a circle is the shape a thumb finds
-  without looking. The pressed state is a filled cyan rather than a ripple — the user needs to be
-  able to tell, at a glance and mid-sentence, that the mic is actually open.
+  Hold-to-speak, in Live. Largest target on the screen and the only saturated one, because with
+  nothing listening ambiently this is the whole way in. The pressed state fills to white-hot rather
+  than rippling — the user is holding it against their face and needs to feel it engage, not see it.
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_pressed="true">
         <shape android:shape="oval">
-            <solid android:color="@color/cyan" />
-            <stroke android:width="2dp" android:color="@color/cyan" />
+            <gradient android:type="radial" android:gradientRadius="60%p"
+                android:startColor="@color/white" android:endColor="@color/accent_hot" />
         </shape>
     </item>
     <item>
         <shape android:shape="oval">
-            <solid android:color="@color/surface" />
-            <stroke android:width="2dp" android:color="@color/cyan_deep" />
+            <gradient android:type="linear" android:angle="270"
+                android:startColor="@color/accent"
+                android:centerColor="@color/accent_hot"
+                android:endColor="@color/ember" />
         </shape>
     </item>
 </selector>

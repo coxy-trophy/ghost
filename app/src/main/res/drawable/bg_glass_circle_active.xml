@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same disc, lit. Used when the control it carries is actually engaged (mic open, cloud on). -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/accent_glow">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/accent_wash" />
+            <stroke android:width="1dp" android:color="@color/accent_dim" />
+        </shape>
+    </item>
+</ripple>

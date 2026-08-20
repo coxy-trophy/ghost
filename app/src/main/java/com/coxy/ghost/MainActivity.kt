@@ -102,10 +102,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sensorChips: LinearLayout
     private lateinit var sensorCard: View
     private lateinit var orb: com.coxy.ghost.ui.OrbView
+    /** Chat's resting state: the orb and the greeting, hidden once there is a transcript. */
+    private lateinit var chatHero: View
+    /** Live's mic band. Fed the same audio level the [CONTEXT] block reports. */
+    private lateinit var waveform: com.coxy.ghost.ui.WaveformView
     private lateinit var liveState: TextView
     private lateinit var liveHeard: TextView
     private lateinit var liveReply: TextView
     private lateinit var livePttHint: TextView
+    /** Top-bar brain indicator. Tinted from the same ramp as the orb; opens the cloud settings. */
+    private lateinit var btnTopBrain: android.widget.ImageButton
+    /** The composer's camera button. Same action as System's Capture. */
+    private lateinit var btnCaptureChat: android.widget.ImageButton
     private var pulse: android.animation.ValueAnimator? = null
 
     private val engine: InferenceEngine by lazy { AiChat.getInferenceEngine(applicationContext) }
@@ -190,6 +198,17 @@ class MainActivity : AppCompatActivity() {
         sensorChips = findViewById(R.id.sensor_chips)
         sensorCard = findViewById(R.id.sensor_card)
         orb = findViewById(R.id.orb)
+        chatHero = findViewById(R.id.chat_hero)
+        waveform = findViewById(R.id.waveform)
+        btnTopBrain = findViewById(R.id.btn_top_brain)
+        btnCaptureChat = findViewById(R.id.btn_capture_chat)
+        // The band samples the mic itself each frame. It reads flat unless the mic is genuinely
+        // open, so a dead mic looks dead rather than idling at a convincing height.
+        waveform.levelProvider = {
+            if (MicListener.mode == MicListener.MicMode.OFF) 0f
+            else ((MicListener.lastRms - MicListener.RMS_FLOOR) /
+                (MicListener.RMS_CEIL - MicListener.RMS_FLOOR))
+        }
         liveState = findViewById(R.id.live_state)
         liveHeard = findViewById(R.id.live_heard)
         liveReply = findViewById(R.id.live_reply)
@@ -197,6 +216,17 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.nav_live).setOnClickListener { showTab(Tab.LIVE) }
         findViewById<View>(R.id.nav_system).setOnClickListener { showTab(Tab.SYSTEM) }
         findViewById<View>(R.id.nav_senses).setOnClickListener { showTab(Tab.SENSES) }
+        // The greeting is the empty state, so it follows the transcript rather than the tab. One
+        // observer on the adapter covers every path that can add a turn — typed, voice, and the
+        // history replayed at launch — which eight separate call sites would not have.
+        messageAdapter.registerAdapterDataObserver(
+            object : androidx.recyclerview.widget.RecyclerView.AdapterDataObserver() {
+                override fun onChanged() = syncChatHero()
+                override fun onItemRangeInserted(positionStart: Int, itemCount: Int) = syncChatHero()
+                override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) = syncChatHero()
+            }
+        )
+        syncChatHero()
         findViewById<View>(R.id.live_exit).setOnClickListener { showTab(Tab.CHAT) }
         findViewById<View>(R.id.live_mute).setOnClickListener { toggleMic() }
         livePttHint = findViewById(R.id.live_ptt_hint)
@@ -214,6 +244,15 @@ class MainActivity : AppCompatActivity() {
         btnPersonality.setOnClickListener { showPersonalityDialog() }
         btnCloud.setOnClickListener { showCloudDialog() }
         btnMic.setOnClickListener { toggleMic() }
+        // The top bar's two discs are shortcuts to the settings behind the state they display,
+        // not new behaviour: the brain indicator opens the cloud dialog that decides which brain
+        // answers, and the grid opens the screen every other control lives on.
+        btnTopBrain.setOnClickListener { showCloudDialog() }
+        findViewById<View>(R.id.btn_top_menu).setOnClickListener { showTab(Tab.SYSTEM) }
+        // The pill's subtitle is the sensing state in one word; tapping it opens the screen that
+        // shows the rest. Without this it would ripple under a press and do nothing.
+        findViewById<View>(R.id.identity_pill).setOnClickListener { showTab(Tab.SENSES) }
+        btnCaptureChat.setOnClickListener { captureFrame() }
         sendFab.setOnClickListener { if (isModelReady) handleUserInput() }
 
         // Phase 5: prompt once to enable the hardware volume-key kill-switch accessibility service.
@@ -369,6 +408,15 @@ class MainActivity : AppCompatActivity() {
         btnStop.isEnabled = GhostService.isRunning
         // On-demand camera capture (D2): available while the daemon is up + CAMERA is granted.
         btnCapture.isEnabled = GhostService.isRunning && VisionTrigger.hasCameraPermission(this)
+        // The composer's camera button is the same action, so it must never disagree about
+        // whether that action is available.
+        btnCaptureChat.isEnabled = btnCapture.isEnabled
+        btnCaptureChat.imageTintList = android.content.res.ColorStateList.valueOf(
+            ContextCompat.getColor(
+                this,
+                if (btnCapture.isEnabled) R.color.on_surface_variant else R.color.on_surface_muted
+            )
+        )
         // Mic toggle: only meaningful while the daemon is up (it owns the listener).
         btnMic.isEnabled = GhostService.isRunning
     }
@@ -381,6 +429,16 @@ class MainActivity : AppCompatActivity() {
      * Screens are swapped by visibility. The orb's animator is tied to its own visibility, so
      * leaving Live mode stops it drawing without any extra bookkeeping here.
      */
+    /**
+     * Shows the orb and the greeting only while there is nothing to read. The orb keeps animating
+     * either way; [com.coxy.ghost.ui.OrbView] stops itself when it is not visible.
+     */
+    private fun syncChatHero() {
+        val empty = messageAdapter.itemCount == 0
+        chatHero.visibility = if (empty) View.VISIBLE else View.GONE
+        messagesRv.visibility = if (empty) View.GONE else View.VISIBLE
+    }
+
     private fun showTab(tab: Tab) {
         currentTab = tab
         screenChat.visibility = if (tab == Tab.CHAT) View.VISIBLE else View.GONE
@@ -388,7 +446,7 @@ class MainActivity : AppCompatActivity() {
         screenSystem.visibility = if (tab == Tab.SYSTEM) View.VISIBLE else View.GONE
         screenPerception.visibility = if (tab == Tab.SENSES) View.VISIBLE else View.GONE
 
-        val on = ContextCompat.getColor(this, R.color.cyan)
+        val on = ContextCompat.getColor(this, R.color.accent)
         val off = ContextCompat.getColor(this, R.color.on_surface_muted)
         fun paint(iconId: Int, labelId: Int, navId: Int, active: Boolean) {
             findViewById<android.widget.ImageView>(iconId).imageTintList =
@@ -446,7 +504,7 @@ class MainActivity : AppCompatActivity() {
             sensorChips.addView(TextView(this).apply {
                 text = c.text
                 setTextAppearance(R.style.TextAppearance_Ghost_Label)
-                if (c.live) setTextColor(ContextCompat.getColor(this@MainActivity, R.color.cyan))
+                if (c.live) setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent))
                 setBackgroundResource(if (c.live) R.drawable.bg_chip_active else R.drawable.bg_chip)
                 setPadding(pad, padV, pad, padV)
                 layoutParams = LinearLayout.LayoutParams(
@@ -465,6 +523,20 @@ class MainActivity : AppCompatActivity() {
             else -> com.coxy.ghost.ui.OrbView.OrbState.IDLE
         }
         orb.setOrbState(state)
+
+        // Which brain answered, carried by the orb's temperature and the top-bar disc as well as
+        // by the chip. It is the single most consequential thing about a reply and the easiest to
+        // miss in a line of text.
+        val onCloud = com.coxy.ghost.cloud.CloudRouter.lastBrain ==
+            com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD
+        orb.setCloudBrain(onCloud)
+        btnTopBrain.imageTintList = android.content.res.ColorStateList.valueOf(
+            ContextCompat.getColor(this, if (onCloud) R.color.accent_hot else R.color.cool)
+        )
+        btnTopBrain.setBackgroundResource(
+            if (onCloud) R.drawable.bg_glass_circle_active else R.drawable.bg_glass_circle
+        )
+
         // DORMANT has to mean dormant. Nothing listens ambiently any more, so the idle label
         // distinguishes "the mic is latched open, speak whenever" from "nothing is listening" —
         // otherwise the one screen whose job is to show whether GHOST can hear you would render
