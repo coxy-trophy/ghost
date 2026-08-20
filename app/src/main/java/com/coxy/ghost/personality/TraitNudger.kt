@@ -23,12 +23,26 @@ object TraitNudger {
     const val WEIGHT = 0.25
 
     /**
+     * How far an *inferred* correction moves a trait.
+     *
+     * A twenty-fifth of the distance rather than a quarter, because this one was never actually
+     * said. One shrug should be almost invisible; a fortnight of shrugs should be unmistakable.
+     * That is the "smaller, gradual nudges" the personality doc asks for, and it is what keeps a
+     * single terse evening from rewriting who she is.
+     */
+    const val IMPLICIT_WEIGHT = 0.04
+
+    /**
      * Apply [signal] to [profile] and return the new profile, or null when it would change nothing.
      *
      * Null happens when the trait is already pinned against its drift budget — the correction was
      * understood and there is simply no room left to move, which is what the budget is for.
      */
-    fun apply(profile: PersonalityProfile, signal: TraitSignal): PersonalityProfile? {
+    fun apply(
+        profile: PersonalityProfile,
+        signal: TraitSignal,
+        weight: Double = WEIGHT,
+    ): PersonalityProfile? {
         // Kept free of logging so it stays a pure function testable in the fast JVM tier — the
         // arithmetic here is the part worth pinning, and android.util.Log is not available there.
         val (min, max) = profile.budgetFor(signal.trait)
@@ -39,7 +53,7 @@ object TraitNudger {
         if (distance == 0) return null
 
         // At least one point, so a correction is never a no-op while there is any room left.
-        val step = (distance * WEIGHT).roundToInt().let {
+        val step = (distance * weight).roundToInt().let {
             if (it == 0) if (distance > 0) 1 else -1 else it
         }
 
@@ -112,6 +126,35 @@ object TraitNudger {
             }
         onPromptRefresh(PersonalityTranslator.profileToPromptBlock(moved))
         return acknowledgement(signal, before, after)
+    }
+
+    /**
+     * Apply an inferred correction. Returns true when something moved.
+     *
+     * Silent by design — nothing is returned to say into the chat. An explicit correction is a
+     * request and deserves an answer; an inference is a guess, and a guess that announces itself
+     * ("I noticed you seemed bored") is both presumptuous and wrong often enough to be irritating.
+     * It shows up in the logs and in the personality dialog, which is where a slow drift belongs.
+     */
+    suspend fun applyImplicit(
+        repo: PersonalityRepository,
+        signal: TraitSignal,
+        onPromptRefresh: (String) -> Unit,
+    ): Boolean {
+        val profile = runCatching { repo.activeProfile() }.getOrNull() ?: return false
+        val before = profile.traits().firstOrNull { it.first == signal.trait }?.second ?: return false
+
+        val moved = apply(profile, signal, IMPLICIT_WEIGHT) ?: return false
+        val after = moved.traits().first { it.first == signal.trait }.second
+        Log.i(TAG, "implicit drift: ${signal.trait} $before -> $after (${signal.matched})")
+
+        runCatching { repo.save(moved, reason = "implicit_signal:${signal.trait}") }
+            .onFailure {
+                Log.w(TAG, "implicit drift could not be saved", it)
+                return false
+            }
+        onPromptRefresh(PersonalityTranslator.profileToPromptBlock(moved))
+        return true
     }
 
     private const val TAG = "TraitNudger"

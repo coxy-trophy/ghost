@@ -714,6 +714,22 @@ class MainActivity : AppCompatActivity() {
                         personalityRepo, userMsg, GhostService::refreshPersonalityPrompt
                     )
 
+                    // Phase 6.5: if he did not *say* what to change, read how he reacted to the
+                    // last exchange instead. Explicit wins — an inference must never override a
+                    // request — and this one stays silent whatever it finds.
+                    if (nudgeAck == null) {
+                        val recent = runCatching { memoryStore.recent(2) }.getOrDefault(emptyList())
+                        val prevUser = recent.lastOrNull { it.role == "user" }?.content
+                        val prevAssistant = recent.lastOrNull { it.role == "assistant" }?.content
+                        com.coxy.ghost.personality.ImplicitSignalDetector
+                            .detect(prevUser, prevAssistant, userMsg)
+                            ?.let {
+                                com.coxy.ghost.personality.TraitNudger.applyImplicit(
+                                    personalityRepo, it, GhostService::refreshPersonalityPrompt
+                                )
+                            }
+                    }
+
                     val cs = ContextStore.state.value
                     // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block.
                     // recall runs off llamaDispatcher (TFLite + Room), engine idle. Assembly is

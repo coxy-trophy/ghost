@@ -649,6 +649,22 @@ class GhostService : LifecycleService() {
                 personalityRepo, cmd, GhostService::refreshPersonalityPrompt
             )
 
+                // Phase 6.5: if he did not *say* what to change, read how he reacted to the
+                // last exchange instead. Explicit wins — an inference must never override a
+                // request — and this one stays silent whatever it finds.
+                if (nudgeAck == null) {
+                    val recent = runCatching { memoryStore.recent(2) }.getOrDefault(emptyList())
+                    val prevUser = recent.lastOrNull { it.role == "user" }?.content
+                    val prevAssistant = recent.lastOrNull { it.role == "assistant" }?.content
+                    com.coxy.ghost.personality.ImplicitSignalDetector
+                        .detect(prevUser, prevAssistant, cmd)
+                        ?.let {
+                            com.coxy.ghost.personality.TraitNudger.applyImplicit(
+                                personalityRepo, it, GhostService::refreshPersonalityPrompt
+                            )
+                        }
+                }
+
             val cs = ContextStore.state.value
             // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block
             // (rides the sendUserPrompt string alongside [CONTEXT]). recall runs off the engine's
