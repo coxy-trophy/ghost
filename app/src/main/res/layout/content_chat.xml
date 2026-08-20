@@ -29,11 +29,15 @@
             android:gravity="center"
             android:paddingHorizontal="32dp">
 
+            <!--
+              Fixed height rather than a weight. Given the remaining space the orb took all of it
+              and pushed the greeting to the floor, leaving the two reading as separate things;
+              bounded, the orb and the words centre together as one block.
+            -->
             <com.coxy.ghost.ui.OrbView
                 android:id="@+id/orb"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
+                android:layout_height="330dp" />
 
             <TextView
                 android:layout_width="wrap_content"

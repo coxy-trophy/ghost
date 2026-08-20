@@ -527,11 +527,21 @@ class MainActivity : AppCompatActivity() {
         // Which brain answered, carried by the orb's temperature and the top-bar disc as well as
         // by the chip. It is the single most consequential thing about a reply and the easiest to
         // miss in a line of text.
-        val onCloud = com.coxy.ghost.cloud.CloudRouter.lastBrain ==
-            com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD
+        val brainNow = com.coxy.ghost.cloud.CloudRouter.lastBrain
+        val onCloud = brainNow == com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD
         orb.setCloudBrain(onCloud)
+        // UNKNOWN means no query has been answered yet, which is not the same as "local". The orb
+        // has to pick a temperature and rests cool, but the disc must not claim a brain it has no
+        // evidence for — it stays unlit until something has actually answered.
         btnTopBrain.imageTintList = android.content.res.ColorStateList.valueOf(
-            ContextCompat.getColor(this, if (onCloud) R.color.accent_hot else R.color.cool)
+            ContextCompat.getColor(
+                this,
+                when (brainNow) {
+                    com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD -> R.color.accent_hot
+                    com.coxy.ghost.cloud.CloudRouter.Companion.Brain.UNKNOWN -> R.color.on_surface_muted
+                    else -> R.color.cool
+                }
+            )
         )
         btnTopBrain.setBackgroundResource(
             if (onCloud) R.drawable.bg_glass_circle_active else R.drawable.bg_glass_circle
