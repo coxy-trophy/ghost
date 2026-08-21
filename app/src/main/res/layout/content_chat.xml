@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Chat. Empty, it is the orb and one question; in use, the conversation replaces the orb and the
-  telemetry row and composer stay put. The sensor pills sit directly above the composer rather than
-  in a bordered card at the top, because they are context for what you are about to say.
+  Chat. The orb and one question sit at the top of the transcript as its first item, so the
+  conversation scrolls past them rather than replacing them; the telemetry row and composer stay
+  put. The sensor pills sit directly above the composer rather than in a bordered card at the top,
+  because they are context for what you are about to say.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -12,61 +13,17 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <FrameLayout
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/messages"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <!--
-          The resting state. Hidden as soon as there is a conversation to show, so the orb is
-          something you return to rather than something the transcript has to scroll past.
-        -->
-        <LinearLayout
-            android:id="@+id/chat_hero"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:paddingHorizontal="32dp">
-
-            <!--
-              Fixed height rather than a weight. Given the remaining space the orb took all of it
-              and pushed the greeting to the floor, leaving the two reading as separate things;
-              bounded, the orb and the words centre together as one block.
-            -->
-            <com.coxy.ghost.ui.OrbView
-                android:id="@+id/orb"
-                android:layout_width="match_parent"
-                android:layout_height="330dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/ghost_greeting_sub"
-                style="@style/TextAppearance.Ghost.DisplaySub" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:layout_marginBottom="24dp"
-                android:gravity="center"
-                android:text="@string/ghost_greeting"
-                style="@style/TextAppearance.Ghost.Display" />
-        </LinearLayout>
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/messages"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:paddingHorizontal="4dp"
-            android:paddingBottom="6dp"
-            android:clipToPadding="false"
-            android:scrollbars="none"
-            android:overScrollMode="never"
-            tools:listitem="@layout/item_message_assistant" />
-    </FrameLayout>
+        android:layout_weight="1"
+        android:paddingHorizontal="4dp"
+        android:paddingBottom="6dp"
+        android:clipToPadding="false"
+        android:scrollbars="none"
+        android:overScrollMode="never"
+        tools:listitem="@layout/item_message_assistant" />
 
     <!--
       Sensor telemetry. Built at runtime from ContextState so the row shows only what is actually

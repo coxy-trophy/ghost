@@ -142,6 +142,9 @@ class MainActivity : AppCompatActivity() {
     private val lastAssistantMsg = StringBuilder()
     private val messageAdapter = MessageAdapter(messages)
 
+    /** Set only while the launch coroutine replays stored turns; see [followTranscript]. */
+    private var replayingHistory = false
+
     private val pickModel = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { handleSelectedModel(it) } }
@@ -177,8 +180,14 @@ class MainActivity : AppCompatActivity() {
         statusTv = findViewById(R.id.gguf)
         perceptionTv = findViewById(R.id.perception)
         messagesRv = findViewById(R.id.messages)
-        messagesRv.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
-        messagesRv.adapter = messageAdapter
+        // stackFromEnd used to do all the scrolling here, but it pins short content to the bottom
+        // of the viewport — with the orb as item 0 an empty transcript would hang it off the floor.
+        // Normal top-anchored layout plus an explicit follow (below) puts it where it belongs.
+        messagesRv.layoutManager = LinearLayoutManager(this)
+        chatHero = layoutInflater.inflate(R.layout.item_chat_hero, messagesRv, false)
+        messagesRv.adapter = androidx.recyclerview.widget.ConcatAdapter(
+            com.coxy.ghost.ui.ChatHeroAdapter(chatHero), messageAdapter
+        )
         userInputEt = findViewById(R.id.user_input)
         sendFab = findViewById(R.id.fab)
         btnPick = findViewById(R.id.btn_pick)
@@ -197,8 +206,7 @@ class MainActivity : AppCompatActivity() {
         perceptionPanel.attach()
         sensorChips = findViewById(R.id.sensor_chips)
         sensorCard = findViewById(R.id.sensor_card)
-        orb = findViewById(R.id.orb)
-        chatHero = findViewById(R.id.chat_hero)
+        orb = chatHero.findViewById(R.id.orb)
         waveform = findViewById(R.id.waveform)
         btnTopBrain = findViewById(R.id.btn_top_brain)
         btnCaptureChat = findViewById(R.id.btn_capture_chat)
@@ -216,17 +224,19 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.nav_live).setOnClickListener { showTab(Tab.LIVE) }
         findViewById<View>(R.id.nav_system).setOnClickListener { showTab(Tab.SYSTEM) }
         findViewById<View>(R.id.nav_senses).setOnClickListener { showTab(Tab.SENSES) }
-        // The greeting is the empty state, so it follows the transcript rather than the tab. One
-        // observer on the adapter covers every path that can add a turn — typed, voice, and the
+        // One observer on the adapter covers every path that can add a turn — typed, voice, and the
         // history replayed at launch — which eight separate call sites would not have.
         messageAdapter.registerAdapterDataObserver(
             object : androidx.recyclerview.widget.RecyclerView.AdapterDataObserver() {
-                override fun onChanged() = syncChatHero()
-                override fun onItemRangeInserted(positionStart: Int, itemCount: Int) = syncChatHero()
-                override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) = syncChatHero()
+                // A new turn pulls the view down to it; a turn being *rewritten* is GHOST typing,
+                // and only follows if the bottom was already on screen.
+                override fun onChanged() = followTranscript(force = false)
+                override fun onItemRangeInserted(positionStart: Int, itemCount: Int) =
+                    followTranscript(force = true)
+                override fun onItemRangeChanged(positionStart: Int, itemCount: Int) =
+                    followTranscript(force = false)
             }
         )
-        syncChatHero()
         findViewById<View>(R.id.live_exit).setOnClickListener { showTab(Tab.CHAT) }
         findViewById<View>(R.id.live_mute).setOnClickListener { toggleMic() }
         livePttHint = findViewById(R.id.live_ptt_hint)
@@ -299,7 +309,9 @@ class MainActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) {
                     val start = messages.size
                     recent.forEach { messages.add(Message(UUID.randomUUID().toString(), it.content, it.role == "user")) }
+                    replayingHistory = true
                     messageAdapter.notifyItemRangeInserted(start, recent.size)
+                    replayingHistory = false
                 }
             }
         }
@@ -430,13 +442,28 @@ class MainActivity : AppCompatActivity() {
      * leaving Live mode stops it drawing without any extra bookkeeping here.
      */
     /**
-     * Shows the orb and the greeting only while there is nothing to read. The orb keeps animating
-     * either way; [com.coxy.ghost.ui.OrbView] stops itself when it is not visible.
+     * Keeps the newest turn in view, which [LinearLayoutManager.setStackFromEnd] used to do before
+     * the orb became item 0.
+     *
+     * A new turn always wins: you should see what you just said even if you were up at the orb
+     * when you sent it. A rewrite does not, because a reply rewrites its bubble on every streamed
+     * token, and following those would drag the reader back down mid-sentence every time they
+     * scrolled up to check what was said earlier — including up to the orb, which is the one place
+     * this change exists to make reachable.
+     *
+     * The launch replay is exempt from both via [replayingHistory]: twenty turns arriving at once
+     * is not a turn being taken, and the screen should open on the orb rather than on the tail of
+     * a conversation from yesterday.
      */
-    private fun syncChatHero() {
-        val empty = messageAdapter.itemCount == 0
-        chatHero.visibility = if (empty) View.VISIBLE else View.GONE
-        messagesRv.visibility = if (empty) View.GONE else View.VISIBLE
+    private fun followTranscript(force: Boolean) {
+        if (replayingHistory) return
+        val lm = messagesRv.layoutManager as? LinearLayoutManager ?: return
+        val last = (messagesRv.adapter?.itemCount ?: 0) - 1
+        if (last < 0) return
+        // -2 rather than -1: by the time this runs the new item exists but has not been laid out.
+        if (force || lm.findLastVisibleItemPosition() >= last - 2) {
+            messagesRv.post { messagesRv.scrollToPosition(last) }
+        }
     }
 
     private fun showTab(tab: Tab) {
