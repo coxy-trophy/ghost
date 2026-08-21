@@ -42,8 +42,8 @@ android {
         minSdk = 33
         targetSdk = 36
 
-        versionCode = 41
-        versionName = "0.15.0"
+        versionCode = 42
+        versionName = "0.16.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -108,6 +108,10 @@ dependencies {
     implementation(project(":lib"))
 
     testImplementation(libs.junit)
+    // A real org.json on the unit-test classpath. Android's is stubbed there and every method
+    // throws "not mocked", which is why the action parser could only ever be tested on a device.
+    // The instrumented ActionParserTest still exercises Android's own implementation.
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

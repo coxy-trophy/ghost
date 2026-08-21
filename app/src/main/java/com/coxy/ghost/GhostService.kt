@@ -674,9 +674,24 @@ class GhostService : LifecycleService() {
             val prompt = GhostPrompts.buildUserPrompt(cs, memBlock, cmd)
             Log.i(TAG, "voice command -> inference: $cmd")
             val sb = StringBuilder()
-            cloudRouter.route(prompt, currentSystemPrompt, predictLength = 512).collect { token ->
-                sb.append(token)
-                ContextStore.update { it.copy(voiceResponse = sb.toString()) }
+            suspend fun stream(p: String) =
+                cloudRouter.route(p, currentSystemPrompt, predictLength = 512).collect { token ->
+                    sb.append(token)
+                    ContextStore.update { it.copy(voiceResponse = sb.toString()) }
+                }
+
+            stream(prompt)
+
+            // The second pass, identical in rule to the typed path: a search result is input, not
+            // output, so if she asked to look something up the reply so far is the request and has
+            // to be replaced by an answer. Wired here as well as in MainActivity because prompt
+            // assembly on these two paths has drifted apart before, and a spoken "what's the
+            // weather" that silently cannot search would be exactly that drift again.
+            com.coxy.ghost.web.WebSearchTurn.queryIn(sb.toString())?.let { q ->
+                val block = com.coxy.ghost.web.WebSearchTurn.blockFor(applicationContext, q)
+                sb.setLength(0)
+                ContextStore.update { it.copy(voiceResponse = "") }
+                stream(com.coxy.ghost.web.WebSearchTurn.secondPassPrompt(prompt, block))
             }
             Log.i(TAG, "voice response: ${sb.toString().take(120)}")
 

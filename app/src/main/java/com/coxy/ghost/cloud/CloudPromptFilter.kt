@@ -33,7 +33,18 @@ object CloudPromptFilter {
                     .replace(Regex("\\[PERSONALITY\\b[^\\n]*"), "")
                     .trim()
                 // Take only the final line as the current user message.
-                noBlocks.lineSequence().lastOrNull { it.isNotBlank() } ?: noBlocks
+                // Explicitly not a [WEB] line: the block is prepended today, but a caller that
+                // appended it instead would otherwise see the user's message replaced by it.
+                val lastLine = noBlocks.lineSequence()
+                    .lastOrNull { it.isNotBlank() && !it.trimStart().startsWith("[WEB") }
+                    ?: noBlocks
+                // ...and keep any [WEB] block with it. These modes exist to control what GHOST
+                // reveals about *Coxy*; web results are public page text and reveal nothing about
+                // him that his own message did not already carry. Dropping it here would leave the
+                // strictest privacy mode as the one where search silently stops working.
+                val web = noBlocks.lineSequence().filter { it.trimStart().startsWith("[WEB") }
+                if (web.none()) lastLine
+                else (web.toList() + lastLine).joinToString("\n")
             }
         }
     }

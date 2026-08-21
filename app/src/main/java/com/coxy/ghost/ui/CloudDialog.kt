@@ -17,7 +17,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The Phase 8 cloud-brain settings dialog: API key, enable toggle, privacy mode and logging.
+ * The cloud-brain settings dialog: API key, enable toggle, privacy mode, logging, and whether
+ * GHOST may search the web. The key is shared between the chat model and search, which is why the
+ * search switch lives here rather than on its own screen.
  *
  * Lifted out of [com.coxy.ghost.MainActivity] alongside [PersonalityDialog]; a pure move.
  */
@@ -30,11 +32,16 @@ class CloudDialog(
         scope.launch(Dispatchers.IO) {
             val settings = GhostPrefs.cloudSettings(activity.applicationContext)
             val currentKey = CloudKeyStorage.getKey(activity.applicationContext) ?: ""
-            withContext(Dispatchers.Main) { build(currentKey, settings) }
+            val webSearch = GhostPrefs.isWebSearchEnabled(activity.applicationContext)
+            withContext(Dispatchers.Main) { build(currentKey, settings, webSearch) }
         }
     }
 
-    private fun build(currentKey: String, settings: com.coxy.ghost.cloud.CloudSettings) {
+    private fun build(
+        currentKey: String,
+        settings: com.coxy.ghost.cloud.CloudSettings,
+        webSearchEnabled: Boolean
+    ) {
         val container = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 16, 32, 16)
@@ -59,6 +66,15 @@ class CloudDialog(
             isChecked = settings.loggingEnabled
         }
         container.addView(loggingSwitch)
+
+        // Separate from the cloud switch above on purpose: that one governs what reaches Ollama's
+        // chat model, while a search query also reaches a search index — an exposure none of the
+        // privacy modes below say anything about.
+        val webSearchSwitch = android.widget.Switch(activity).apply {
+            text = activity.getString(R.string.ghost_web_search)
+            isChecked = webSearchEnabled
+        }
+        container.addView(webSearchSwitch)
 
         val modes = com.coxy.ghost.cloud.CloudPromptFilter.Mode.entries.map { it.name.lowercase() }
         val modeLabel = TextView(activity).apply {
@@ -87,6 +103,9 @@ class CloudDialog(
                     GhostPrefs.setCloudEnabled(activity.applicationContext, enabledSwitch.isChecked)
                     GhostPrefs.setCloudLoggingEnabled(activity.applicationContext, loggingSwitch.isChecked)
                     GhostPrefs.setCloudPrivacyMode(activity.applicationContext, newMode)
+                    GhostPrefs.setWebSearchEnabled(
+                        activity.applicationContext, webSearchSwitch.isChecked
+                    )
                     withContext(Dispatchers.Main) {
                         val status = if (enabledSwitch.isChecked && newKey.isNotBlank()) "enabled"
                                      else if (enabledSwitch.isChecked) "enabled (key missing)"

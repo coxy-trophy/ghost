@@ -846,17 +846,43 @@ class MainActivity : AppCompatActivity() {
                     val memBlock = memoryStore.recall(userMsg).toMemoryBlock()
                     val prompt = GhostPrompts.buildUserPrompt(cs, memBlock, userMsg)
 
-                    cloudRouter.route(prompt, GhostService.currentSystemPrompt, predictLength = 512)
-                        .collect { token ->
-                            withContext(Dispatchers.Main) {
-                                val n = messages.size
-                                check(n > 0 && !messages[n - 1].isUser)
-                                messages.removeAt(n - 1).copy(
-                                    content = lastAssistantMsg.append(token).toString()
-                                ).let { messages.add(it) }
-                                messageAdapter.notifyItemChanged(messages.size - 1)
+                    suspend fun stream(p: String) =
+                        cloudRouter.route(p, GhostService.currentSystemPrompt, predictLength = 512)
+                            .collect { token ->
+                                withContext(Dispatchers.Main) {
+                                    val n = messages.size
+                                    check(n > 0 && !messages[n - 1].isUser)
+                                    messages.removeAt(n - 1).copy(
+                                        content = lastAssistantMsg.append(token).toString()
+                                    ).let { messages.add(it) }
+                                    messageAdapter.notifyItemChanged(messages.size - 1)
+                                }
                             }
+
+                    stream(prompt)
+
+                    // The one action whose result is input rather than output. If she asked to look
+                    // something up, the reply so far is the request, not the answer: run the search
+                    // and generate again with what came back. The first reply is dropped — showing
+                    // it would mean Coxy reads "let me check" and then watches it be replaced.
+                    //
+                    // Only ever one extra pass. The second reply is not re-examined for a search,
+                    // so a model that keeps asking cannot spend the turn in a loop.
+                    com.coxy.ghost.web.WebSearchTurn.queryIn(lastAssistantMsg.toString())?.let { q ->
+                        val block = com.coxy.ghost.web.WebSearchTurn.blockFor(this@MainActivity, q)
+                        withContext(Dispatchers.Main) {
+                            val n = messages.size
+                            check(n > 0 && !messages[n - 1].isUser)
+                            lastAssistantMsg.clear()
+                            messages.removeAt(n - 1).copy(content = getString(R.string.ghost_searching))
+                                .let { messages.add(it) }
+                            messageAdapter.notifyItemChanged(messages.size - 1)
                         }
+                        // Clear again: the placeholder above is what he reads while the second pass
+                        // spins up, but it must not become the head of the real reply.
+                        lastAssistantMsg.clear()
+                        stream(com.coxy.ghost.web.WebSearchTurn.secondPassPrompt(prompt, block))
+                    }
 
                     // After the reply completes (engine idle): parse any actions, execute them, strip
                     // the deprecated "Ghost:" prefix, then persist the final reply for future recall.

@@ -53,6 +53,11 @@ class ActionExecutor(private val context: Context) {
             "force_stop_app", "disable_app", "uninstall_app", "send_sms" -> SuExecutor.run(action)
             "get_battery", "get_wifi_state", "get_bluetooth_state",
             "toggle_torch", "set_brightness", "set_volume", "launch_app" -> framework.run(action)
+            // Handled before this point, by com.coxy.ghost.web.WebSearchTurn — a search feeds the
+            // model rather than the reply, so it cannot run from here. Reaching this line means the
+            // *second* pass asked to search again; one per turn is the cap, and saying so is better
+            // than silently dropping it.
+            "web_search" -> ActionResult(action.id, false, "already searched this turn")
             else -> ActionResult(action.id, false, "action not wired to an executor")
         }
     }

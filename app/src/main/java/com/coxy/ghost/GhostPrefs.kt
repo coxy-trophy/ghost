@@ -35,6 +35,16 @@ object GhostPrefs {
     private val KEY_CLOUD_LOGGING_ENABLED = booleanPreferencesKey("cloud_logging_enabled")
 
     /**
+     * Whether GHOST may search the web.
+     *
+     * Separate from the cloud toggle on purpose. The cloud settings govern what reaches *Ollama's
+     * chat model*; a search query reaches a search index as well, which the existing privacy modes
+     * say nothing about. Defaults on, because it only fires when she is explicitly asked to look
+     * something up.
+     */
+    private val KEY_WEB_SEARCH_ENABLED = booleanPreferencesKey("web_search_enabled")
+
+    /**
      * The "leave the mic on" latch for Live mode.
      *
      * Deliberately a **new key**, not a new default on `mic_enabled`. That key meant "ambient
@@ -99,6 +109,15 @@ object GhostPrefs {
 
     suspend fun setFactExtractionEnabled(ctx: Context, enabled: Boolean) {
         ctx.ghostDataStore.edit { p -> p[KEY_FACT_EXTRACTION_ENABLED] = enabled }
+    }
+
+    fun webSearchEnabledFlow(ctx: Context): Flow<Boolean> =
+        ctx.ghostDataStore.data.map { it[KEY_WEB_SEARCH_ENABLED] ?: true }
+
+    suspend fun isWebSearchEnabled(ctx: Context): Boolean = webSearchEnabledFlow(ctx).first()
+
+    suspend fun setWebSearchEnabled(ctx: Context, enabled: Boolean) {
+        ctx.ghostDataStore.edit { p -> p[KEY_WEB_SEARCH_ENABLED] = enabled }
     }
 
     suspend fun getModelPath(ctx: Context): String? = modelPathFlow(ctx).first()
