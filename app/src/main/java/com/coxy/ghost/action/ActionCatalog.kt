@@ -120,6 +120,23 @@ object ActionCatalog {
             requiredParams = listOf("device", "app"),
             description = "Open an app (YouTube, Netflix) on a TV on the network"
         ),
+        // Android TV remote. Pairing is two steps because the television shows a code that has to
+        // be read out; see [com.coxy.ghost.net.atv.AtvPairingSession].
+        "pair_tv" to Entry(
+            tier = ActionTier.TIER_1_REVERSIBLE,
+            requiredParams = listOf("device"),
+            description = "Start pairing with a TV so GHOST can use its remote"
+        ),
+        "pair_code" to Entry(
+            tier = ActionTier.TIER_1_REVERSIBLE,
+            requiredParams = listOf("code"),
+            description = "Give GHOST the code the TV is showing, to finish pairing"
+        ),
+        "tv_key" to Entry(
+            tier = ActionTier.TIER_2_DISRUPTIVE,
+            requiredParams = listOf("device", "key"),
+            description = "Press a remote key on a paired TV — power, home, up, volume, mute"
+        ),
         "name_device" to Entry(
             tier = ActionTier.TIER_1_REVERSIBLE,
             requiredParams = listOf("device", "name"),

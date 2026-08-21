@@ -162,11 +162,22 @@ class LanControlTest {
     // --- catalogue ---------------------------------------------------------------------------------
 
     @Test
-    fun `every network control demands a named device`() {
-        for (id in LanExecutor.ACTION_IDS) {
+    fun `every network control demands a named device, bar the one that cannot`() {
+        // pair_code is the single exception and an intentional one: the code belongs to whichever
+        // pairing is already open, and there is exactly one at a time. Asking Coxy to name the
+        // television again while it is on screen showing him a code would be asking him to repeat
+        // himself. It is listed here by name so that a *new* action slipping through without a
+        // device requirement fails this test instead of quietly reaching the wrong device.
+        val exempt = setOf("pair_code")
+        for (id in LanExecutor.ACTION_IDS - exempt) {
             val errors = com.coxy.ghost.action.ActionCatalog.validate(id, mapOf())
             assertTrue("$id must require a device", errors.any { it.contains("device") })
         }
+        assertTrue(
+            "pair_code must still require the code itself",
+            com.coxy.ghost.action.ActionCatalog.validate("pair_code", mapOf())
+                .any { it.contains("code") }
+        )
     }
 }
 

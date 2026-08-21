@@ -52,6 +52,9 @@ object GhostPrefs {
      */
     private val KEY_DEVICE_NAMES = stringPreferencesKey("device_names")
 
+    /** Addresses of televisions that have accepted GHOST's remote-control certificate. */
+    private val KEY_PAIRED_TVS = stringPreferencesKey("paired_tvs")
+
     /**
      * The "leave the mic on" latch for Live mode.
      *
@@ -133,6 +136,13 @@ object GhostPrefs {
 
     suspend fun setDeviceNames(ctx: Context, json: String) {
         ctx.ghostDataStore.edit { p -> p[KEY_DEVICE_NAMES] = json }
+    }
+
+    suspend fun getPairedTvs(ctx: Context): String? =
+        ctx.ghostDataStore.data.map { it[KEY_PAIRED_TVS] }.first()
+
+    suspend fun setPairedTvs(ctx: Context, json: String) {
+        ctx.ghostDataStore.edit { p -> p[KEY_PAIRED_TVS] = json }
     }
 
     suspend fun getModelPath(ctx: Context): String? = modelPathFlow(ctx).first()

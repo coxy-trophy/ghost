@@ -24,11 +24,16 @@ class LanExecutor(private val context: Context) {
 
         val ACTION_IDS = setOf(
             "media_control", "set_device_volume", "mute_device", "launch_tv_app", "wake_device",
-            "name_device", "device_status"
+            "name_device", "device_status", "pair_tv", "pair_code", "tv_key"
         )
     }
 
     suspend fun run(action: Action): ActionResult {
+        // The only action with no device: the code belongs to whichever pairing is already open,
+        // and asking Coxy to name the television again while it is showing him a code would be
+        // asking him to repeat himself.
+        if (action.id == "pair_code") return pairCode(action)
+
         val target = action.params["device"]?.trim().orEmpty()
         if (target.isEmpty()) {
             return fail(action, "name the device — there are several on this network")
@@ -65,6 +70,8 @@ class LanExecutor(private val context: Context) {
                 "launch_tv_app" -> launchApp(device, action.params["app"].orEmpty())
                 "wake_device" -> wake(device)
                 "name_device" -> name(device, action.params["name"].orEmpty())
+                "pair_tv" -> pairStart(device)
+                "tv_key" -> tvKey(device, action.params["key"].orEmpty())
                 else -> return fail(action, "not implemented in LanExecutor")
             }
         }.fold(
@@ -189,6 +196,64 @@ class LanExecutor(private val context: Context) {
             ?: throw IllegalStateException("${nameOf(device)} can't open apps this way")
         val opened = DialControl.launch(appUrl, app).getOrThrow()
         return "${nameOf(device)}: opened $opened"
+    }
+
+    // --- Android TV remote -------------------------------------------------------------------
+
+    private suspend fun pairStart(device: LanDevice): String {
+        if (device.services.none { it.contains("androidtvremote") }) {
+            throw IllegalStateException(
+                "${nameOf(device)} isn't an Android TV — it doesn't offer a remote to pair with"
+            )
+        }
+        val session = com.coxy.ghost.net.atv.AtvPairing(device.ip)
+        runCatching { session.begin() }.getOrElse {
+            session.close()
+            throw IllegalStateException(
+                it.message ?: "couldn't start pairing with ${nameOf(device)}"
+            )
+        }
+        com.coxy.ghost.net.atv.AtvPairingSession.start(device.ip, session)
+        return "${nameOf(device)} is showing a six-character code — read it out and I'll finish"
+    }
+
+    private suspend fun pairCode(action: Action): ActionResult {
+        val code = action.params["code"]?.trim().orEmpty()
+        val pending = com.coxy.ghost.net.atv.AtvPairingSession.take()
+            ?: return ActionResult(
+                action.id, false,
+                "no pairing is waiting — the code has to follow straight after starting one"
+            )
+        val (host, session) = pending
+        return try {
+            session.finish(code)
+            com.coxy.ghost.net.atv.AtvPairingSession.done()
+            session.close()
+            com.coxy.ghost.net.atv.AtvPaired.remember(context, host)
+            ActionResult(action.id, true, "paired with $host — the remote works now")
+        } catch (e: Exception) {
+            // A wrong code is worth another try on the same session; a dead socket is not, and
+            // saying which it was saves reading the code out again for nothing.
+            val recoverable = e is IllegalArgumentException ||
+                e.message?.contains("doesn't match") == true
+            if (!recoverable) {
+                com.coxy.ghost.net.atv.AtvPairingSession.abandon()
+            }
+            ActionResult(action.id, false, e.message ?: "the code was not accepted")
+        }
+    }
+
+    private suspend fun tvKey(device: LanDevice, key: String): String {
+        val code = com.coxy.ghost.net.atv.AtvKeys.forWord(key)
+            ?: throw IllegalArgumentException("'$key' isn't a remote key I know")
+        com.coxy.ghost.net.atv.AtvRemote.sendKeys(device.ip, listOf(code))
+        // Power and mute toggle; the protocol reports no state back either way, so claiming a
+        // direction would be inventing the half of the answer that matters.
+        return if (com.coxy.ghost.net.atv.AtvKeys.isToggle(code)) {
+            "${nameOf(device)}: pressed $key — it toggles, so look and see"
+        } else {
+            "${nameOf(device)}: pressed $key"
+        }
     }
 
     private suspend fun name(device: LanDevice, name: String): String {
