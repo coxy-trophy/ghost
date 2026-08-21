@@ -1,4 +1,6 @@
-package com.coxy.ghost.web
+package com.coxy.ghost.tool
+
+import com.coxy.ghost.web.WebClient
 
 import com.coxy.ghost.action.ActionCatalog
 import org.junit.Assert.assertEquals
@@ -6,10 +8,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class WebTurnTest {
+class LookupTurnTest {
 
-    private fun search(reply: String) = WebTurn.requestIn(reply) as? WebTurn.Request.Search
-    private fun fetch(reply: String) = WebTurn.requestIn(reply) as? WebTurn.Request.Fetch
+    private fun search(reply: String) = LookupTurn.requestIn(reply) as? LookupTurn.Request.Search
+    private fun fetch(reply: String) = LookupTurn.requestIn(reply) as? LookupTurn.Request.Fetch
 
     // --- what counts as a web request ------------------------------------------------------------
 
@@ -29,8 +31,8 @@ class WebTurnTest {
 
     @Test
     fun `an ordinary reply asks for nothing`() {
-        assertNull(WebTurn.requestIn("It's about four in the afternoon."))
-        assertNull(WebTurn.requestIn("""Turning it on. {"action":"toggle_torch","state":"on"}"""))
+        assertNull(LookupTurn.requestIn("It's about four in the afternoon."))
+        assertNull(LookupTurn.requestIn("""Turning it on. {"action":"toggle_torch","state":"on"}"""))
     }
 
     @Test
@@ -45,30 +47,49 @@ class WebTurnTest {
 
     @Test
     fun `a blank query or url is not a request`() {
-        assertNull(WebTurn.requestIn("""{"action":"web_search","query":"   "}"""))
-        assertNull(WebTurn.requestIn("""{"action":"web_fetch","url":"  "}"""))
+        assertNull(LookupTurn.requestIn("""{"action":"web_search","query":"   "}"""))
+        assertNull(LookupTurn.requestIn("""{"action":"web_fetch","url":"  "}"""))
     }
 
     @Test
     fun `both web actions require their parameter`() {
         assertTrue(ActionCatalog.validate("web_search", mapOf()).isNotEmpty())
         assertTrue(ActionCatalog.validate("web_fetch", mapOf()).isNotEmpty())
-        assertNull(WebTurn.requestIn("""{"action":"web_fetch"}"""))
+        assertNull(LookupTurn.requestIn("""{"action":"web_fetch"}"""))
     }
 
     // --- the loop's shape -------------------------------------------------------------------------
 
     @Test
+    fun `a network scan is recognised as a lookup`() {
+        val req = LookupTurn.requestIn("""Checking. {"action":"scan_network"}""")
+        assertTrue("expected a Lan request, got $req", req is LookupTurn.Request.Lan)
+        assertTrue("defaults to the cached scan", !(req as LookupTurn.Request.Lan).force)
+    }
+
+    @Test
+    fun `a network scan can ask for a fresh look`() {
+        val req = LookupTurn.requestIn("""{"action":"scan_network","refresh":"true"}""")
+        assertTrue((req as LookupTurn.Request.Lan).force)
+    }
+
+    @Test
+    fun `scan_network needs no parameters`() {
+        // The only lookup with nothing required: "what's on my network" takes no argument.
+        assertTrue(ActionCatalog.validate("scan_network", mapOf()).isEmpty())
+    }
+
+    @Test
     fun `two steps is the cap, which is exactly search then read`() {
-        assertEquals(2, WebTurn.MAX_STEPS)
+        assertEquals(2, LookupTurn.MAX_STEPS)
     }
 
     @Test
     fun `blocks stack in front so the user's message stays the last line`() {
         // CloudPromptFilter's CHAT_ONLY mode reconstructs the turn as "the last non-blank line".
         val base = "[CONTEXT activity=still]\nwhat does that page say?"
-        val afterSearch = WebTurn.withBlock(base, "[WEB results for \"x\" — 1. y]")
-        val afterFetch = WebTurn.withBlock(afterSearch, "[WEB page \"y\" (example.com) — text]")
+        val afterSearch = LookupTurn.withBlock(base, "[WEB results for \"x\" — 1. y]")
+        val afterFetch = LookupTurn.withBlock(afterSearch, "[WEB page \"y\" (example.com) — text]")
         assertEquals("what does that page say?", afterFetch.lines().last())
         assertTrue("newest step first", afterFetch.startsWith("[WEB page"))
         assertTrue(afterFetch.contains("[WEB results"))
@@ -81,6 +102,8 @@ class WebTurnTest {
         val prompt = ActionCatalog.promptList()
         assertTrue(prompt.contains("web_search(query)"))
         assertTrue(prompt.contains("web_fetch(url)"))
+        assertTrue(ActionCatalog.contains("scan_network"))
+        assertTrue(prompt.contains("scan_network"))
     }
 
     // --- the fetch boundary -----------------------------------------------------------------------

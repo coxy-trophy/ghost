@@ -870,19 +870,19 @@ class MainActivity : AppCompatActivity() {
                     // works, bounded by MAX_STEPS so a model that keeps asking runs out of steps.
                     var webPrompt = prompt
                     var webSteps = 0
-                    while (webSteps < com.coxy.ghost.web.WebTurn.MAX_STEPS) {
-                        val req = com.coxy.ghost.web.WebTurn
+                    while (webSteps < com.coxy.ghost.tool.LookupTurn.MAX_STEPS) {
+                        val req = com.coxy.ghost.tool.LookupTurn
                             .requestIn(lastAssistantMsg.toString()) ?: break
                         withContext(Dispatchers.Main) {
                             val n = messages.size
                             check(n > 0 && !messages[n - 1].isUser)
                             messages.removeAt(n - 1)
-                                .copy(content = com.coxy.ghost.web.WebTurn.placeholderFor(this@MainActivity, req))
+                                .copy(content = com.coxy.ghost.tool.LookupTurn.placeholderFor(this@MainActivity, req))
                                 .let { messages.add(it) }
                             messageAdapter.notifyItemChanged(messages.size - 1)
                         }
-                        val block = com.coxy.ghost.web.WebTurn.blockFor(this@MainActivity, req)
-                        webPrompt = com.coxy.ghost.web.WebTurn.withBlock(webPrompt, block)
+                        val block = com.coxy.ghost.tool.LookupTurn.blockFor(this@MainActivity, req)
+                        webPrompt = com.coxy.ghost.tool.LookupTurn.withBlock(webPrompt, block)
                         // The placeholder is what he reads while the next pass spins up, but it
                         // must not become the head of the real reply.
                         lastAssistantMsg.clear()

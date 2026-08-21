@@ -689,13 +689,13 @@ class GhostService : LifecycleService() {
             // weather" that silently could not search would be exactly that drift again.
             var webPrompt = prompt
             var webSteps = 0
-            while (webSteps < com.coxy.ghost.web.WebTurn.MAX_STEPS) {
-                val req = com.coxy.ghost.web.WebTurn.requestIn(sb.toString()) ?: break
+            while (webSteps < com.coxy.ghost.tool.LookupTurn.MAX_STEPS) {
+                val req = com.coxy.ghost.tool.LookupTurn.requestIn(sb.toString()) ?: break
                 ContextStore.update {
-                    it.copy(voiceResponse = com.coxy.ghost.web.WebTurn.placeholderFor(applicationContext, req))
+                    it.copy(voiceResponse = com.coxy.ghost.tool.LookupTurn.placeholderFor(applicationContext, req))
                 }
-                val block = com.coxy.ghost.web.WebTurn.blockFor(applicationContext, req)
-                webPrompt = com.coxy.ghost.web.WebTurn.withBlock(webPrompt, block)
+                val block = com.coxy.ghost.tool.LookupTurn.blockFor(applicationContext, req)
+                webPrompt = com.coxy.ghost.tool.LookupTurn.withBlock(webPrompt, block)
                 sb.setLength(0)
                 stream(webPrompt)
                 webSteps++

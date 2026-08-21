@@ -40,6 +40,15 @@
          instead of waiting out a 15s connect timeout per model in the chain. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      Home-network discovery. ACCESS_WIFI_STATE reads which network is joined; the multicast lock
+      is the one that matters: Wi-Fi hardware filters multicast when idle to save power, which
+      silently drops every mDNS and SSDP reply. The symptom is an empty scan on a network full of
+      devices, with nothing logged anywhere to say why. Both are normal-level, granted at install.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <!-- Phase 4.5 perception. BLUETOOTH_SCAN carries neverForLocation: GHOST counts nearby BLE
          devices and names only ones already paired to this phone, and never derives position from
          them. READ_PHONE_STATE is for call state and signal only — no numbers, contacts or

@@ -53,11 +53,11 @@ class ActionExecutor(private val context: Context) {
             "force_stop_app", "disable_app", "uninstall_app", "send_sms" -> SuExecutor.run(action)
             "get_battery", "get_wifi_state", "get_bluetooth_state",
             "toggle_torch", "set_brightness", "set_volume", "launch_app" -> framework.run(action)
-            // Handled before this point, by com.coxy.ghost.web.WebTurn — a web result feeds the
-            // model rather than the reply, so it cannot run from here. Reaching this line means the
-            // turn's web steps are already spent, and saying so is better than silently dropping it.
-            "web_search", "web_fetch" ->
-                ActionResult(action.id, false, "no web steps left this turn")
+            // Handled before this point, by com.coxy.ghost.tool.LookupTurn — a lookup's result
+            // feeds the model rather than the reply, so it cannot run from here. Reaching this line
+            // means the turn's lookups are already spent, and saying so beats dropping it silently.
+            "web_search", "web_fetch", "scan_network" ->
+                ActionResult(action.id, false, "no lookups left this turn")
             else -> ActionResult(action.id, false, "action not wired to an executor")
         }
     }

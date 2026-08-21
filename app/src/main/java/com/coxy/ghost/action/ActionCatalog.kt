@@ -66,8 +66,8 @@ object ActionCatalog {
             description = "Set media volume 0-100"
         ),
         /**
-         * The two actions whose results are *input* rather than output. Everything else here ends a
-         * turn; these start another pass — see [com.coxy.ghost.web.WebTurn].
+         * The actions whose results are *input* rather than output. Everything else here ends a
+         * turn; these start another pass — see [com.coxy.ghost.tool.LookupTurn].
          */
         "web_search" to Entry(
             tier = ActionTier.TIER_1_REVERSIBLE,
@@ -78,6 +78,11 @@ object ActionCatalog {
             tier = ActionTier.TIER_1_REVERSIBLE,
             requiredParams = listOf("url"),
             description = "Read one web page and answer from it"
+        ),
+        "scan_network" to Entry(
+            tier = ActionTier.TIER_1_REVERSIBLE,
+            optionalParams = listOf("refresh"),
+            description = "See what is on the home Wi-Fi network"
         ),
         "launch_app" to Entry(
             tier = ActionTier.TIER_1_REVERSIBLE,
