@@ -30,8 +30,21 @@ object AtvKeys {
     const val CHANNEL_DOWN = 167
     const val TV_INPUT = 178
 
+    /**
+     * The other two ways a device can be asked to go dark.
+     *
+     * POWER is what a remote's power button sends and what should work. These exist because
+     * "should" is doing real work in that sentence: some Android TV builds route standby through
+     * TV_POWER, and others only honour SLEEP, and there is no way to ask a television which it is
+     * — the protocol acknowledges no key.
+     */
+    const val TV_POWER = 177
+    const val SLEEP = 223
+    const val WAKEUP = 224
+
     private val BY_WORD = mapOf(
         "power" to POWER, "off" to POWER, "on" to POWER, "poweroff" to POWER, "poweron" to POWER,
+        "tvpower" to TV_POWER, "sleep" to SLEEP, "standby" to SLEEP, "wake" to WAKEUP,
         "home" to HOME, "back" to BACK,
         "up" to DPAD_UP, "down" to DPAD_DOWN, "left" to DPAD_LEFT, "right" to DPAD_RIGHT,
         "ok" to DPAD_CENTER, "select" to DPAD_CENTER, "enter" to DPAD_CENTER,
@@ -58,5 +71,5 @@ object AtvKeys {
     }
 
     /** True if this key toggles rather than sets, so a reply must not claim a direction. */
-    fun isToggle(code: Int): Boolean = code == POWER || code == VOLUME_MUTE
+    fun isToggle(code: Int): Boolean = code == POWER || code == TV_POWER || code == VOLUME_MUTE
 }

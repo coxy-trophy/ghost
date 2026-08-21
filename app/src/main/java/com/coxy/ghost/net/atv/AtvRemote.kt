@@ -127,6 +127,32 @@ object AtvRemote {
 
             if (!started) throw IOException("the television never became ready for commands")
 
+            // Settled, not merely started. The handshake is followed by a burst — this set sends
+            // fields 40, 50 and 20 within a tenth of a second — and a key injected into the middle
+            // of it is accepted and discarded, which looks from here exactly like a key that
+            // worked. Draining until the television either goes quiet or starts pinging means the
+            // keypress lands on a session that has finished setting itself up.
+            var quiet = false
+            val settleBy = System.currentTimeMillis() + 8_000
+            while (!quiet && System.currentTimeMillis() < settleBy) {
+                val body = try {
+                    readFramed(ins)
+                } catch (_: SocketTimeoutException) {
+                    quiet = true          // nothing more to say: it is ready
+                    continue
+                }
+                val fields = Protobuf.parse(body)
+                Log.i(TAG, "$host -> fields ${fields.map { it.number }} (settling)")
+                fields.field(F_PING_REQUEST)?.let { ping ->
+                    val value = Protobuf.parse(ping.bytes ?: ByteArray(0)).field(1)?.varint ?: 0
+                    send(out) { message(F_PING_RESPONSE) { varint(1, value) } }
+                    quiet = true          // a ping means idle, and idle means ready
+                }
+                if (fields.field(F_ERROR) != null) {
+                    throw IOException("the television reported an error")
+                }
+            }
+
             for (code in keyCodes) {
                 send(out) {
                     message(F_KEY_INJECT) {
