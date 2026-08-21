@@ -137,6 +137,23 @@ object ActionCatalog {
             requiredParams = listOf("device", "key"),
             description = "Press a remote key on a paired TV — power, home, up, volume, mute"
         ),
+        // Another Android phone, over its debug bridge. Tier 2: the effect lands on a screen in
+        // another room, and is as recoverable as pressing the button yourself would be.
+        "phone_control" to Entry(
+            tier = ActionTier.TIER_2_DISRUPTIVE,
+            requiredParams = listOf("device", "command"),
+            description = "Press a control on another Android phone — play, pause, volume, screen, home, lock, ring"
+        ),
+        "phone_launch" to Entry(
+            tier = ActionTier.TIER_2_DISRUPTIVE,
+            requiredParams = listOf("device", "app"),
+            description = "Open an app on another Android phone"
+        ),
+        "phone_status" to Entry(
+            tier = ActionTier.TIER_0_READ_ONLY,
+            requiredParams = listOf("device"),
+            description = "Ask another Android phone its battery, screen state and what is playing"
+        ),
         "name_device" to Entry(
             tier = ActionTier.TIER_1_REVERSIBLE,
             requiredParams = listOf("device", "name"),

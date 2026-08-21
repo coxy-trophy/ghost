@@ -24,7 +24,8 @@ class LanExecutor(private val context: Context) {
 
         val ACTION_IDS = setOf(
             "media_control", "set_device_volume", "mute_device", "launch_tv_app", "wake_device",
-            "name_device", "device_status", "pair_tv", "pair_code", "tv_key"
+            "name_device", "device_status", "pair_tv", "pair_code", "tv_key",
+            "phone_control", "phone_launch", "phone_status"
         )
     }
 
@@ -80,6 +81,9 @@ class LanExecutor(private val context: Context) {
                 "name_device" -> name(device, action.params["name"].orEmpty())
                 "pair_tv" -> pairStart(device)
                 "tv_key" -> tvKey(device, action.params["key"].orEmpty())
+                "phone_control" -> phoneControl(device, action.params["command"].orEmpty())
+                "phone_launch" -> phoneLaunch(device, action.params["app"].orEmpty())
+                "phone_status" -> phoneStatus(device)
                 else -> return fail(action, "not implemented in LanExecutor")
             }
         }.fold(
@@ -208,6 +212,45 @@ class LanExecutor(private val context: Context) {
             ?: throw IllegalStateException("${nameOf(device)} can't open apps this way")
         val opened = DialControl.launch(appUrl, app).getOrThrow()
         return "${nameOf(device)}: opened $opened"
+    }
+
+    // --- another Android phone ---------------------------------------------------------------
+
+    private suspend fun phoneControl(device: LanDevice, command: String): String {
+        val cmd = com.coxy.ghost.net.adb.PhoneControl.Command.forWord(command)
+            ?: throw IllegalArgumentException(
+                "'$command' isn't something I can press on a phone — play, pause, next, volume, " +
+                    "screen, home, back, lock or ring"
+            )
+        return "${nameOf(device)}: " + phone { com.coxy.ghost.net.adb.PhoneControl.run(device.ip, cmd) }
+    }
+
+    private suspend fun phoneLaunch(device: LanDevice, app: String): String =
+        "${nameOf(device)}: " + phone { com.coxy.ghost.net.adb.PhoneControl.launch(device.ip, app) }
+
+    private suspend fun phoneStatus(device: LanDevice): String =
+        "${nameOf(device)}: " + phone {
+            com.coxy.ghost.net.adb.PhoneControl.run(
+                device.ip, com.coxy.ghost.net.adb.PhoneControl.Command.STATUS
+            )
+        }
+
+    /**
+     * Turn "the other phone is waiting on a tap" into a sentence about the other phone.
+     *
+     * That case is not a technical failure and must not read as one: the fix is to walk over and
+     * accept a prompt, and a message saying "connection refused" sends someone looking at Wi-Fi.
+     */
+    private suspend fun <T> phone(block: suspend () -> T): T = try {
+        block()
+    } catch (e: com.coxy.ghost.net.adb.AdbConnection.AdbUnauthorized) {
+        throw IllegalStateException(
+            "that phone is showing an 'Allow debugging?' prompt — accept it there and ask me again"
+        )
+    } catch (e: java.net.ConnectException) {
+        throw IllegalStateException(
+            "that phone isn't accepting commands — wireless debugging needs to be on"
+        )
     }
 
     // --- Android TV remote -------------------------------------------------------------------

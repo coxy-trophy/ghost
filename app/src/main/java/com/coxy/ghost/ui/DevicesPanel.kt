@@ -232,6 +232,7 @@ class DevicesPanel(
 
     /** Short flags for what this device will take. */
     private fun capabilities(device: KnownDevice): String = buildList {
+        if (device.isPhone) add("phone")
         if (device.isAndroidTv) add(if (device.paired) "remote" else "pairable")
         if (device.canControlMedia) add("media")
         if (device.canWake) add("wake")

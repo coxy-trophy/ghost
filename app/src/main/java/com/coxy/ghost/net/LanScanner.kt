@@ -144,6 +144,15 @@ object LanScanner {
                 )
 
 
+                // Which of these will take phone commands. A short TCP probe rather than a full
+                // handshake: opening a connection would raise the "Allow debugging" prompt on
+                // somebody's phone merely because a scan ran, which is not a thing a scan should do.
+                val debuggable = runCatching { AdbProbe.probe(devices.map { it.ip }) }
+                    .getOrDefault(emptySet())
+                val devicesWithAdb = devices.map {
+                    if (it.ip in debuggable) it.copy(services = it.services + AdbProbe.SERVICE) else it
+                }
+
                 if (devices.isEmpty()) {
                     Log.w(TAG, "scan found nothing on ${localIp.substringBeforeLast('.')}.0/24")
                 }
@@ -157,15 +166,15 @@ object LanScanner {
                     NetworkMemory.currentNetwork(context, gatewayMac, "$prefix.0/24", now)
                 }.getOrNull()
                 if (network != null) {
-                    runCatching { NetworkMemory.record(context, network.id, devices, now) }
+                    runCatching { NetworkMemory.record(context, network.id, devicesWithAdb, now) }
                 }
                 // Names come back out of Room afterwards, not from the DataStore blob that was
                 // applied above: recording first means a device seen for the first time already
                 // has a row, and reading second means a rename made on the Devices screen reaches
                 // the matcher without waiting for anything.
                 val named = runCatching {
-                    NetworkMemory.applyKnown(context, network?.id, devices)
-                }.getOrDefault(devices)
+                    NetworkMemory.applyKnown(context, network?.id, devicesWithAdb)
+                }.getOrDefault(devicesWithAdb)
 
                 lastNetwork = network
                 val result = Result.Scanned(named, "$prefix.0/24", network)

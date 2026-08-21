@@ -89,4 +89,7 @@ data class KnownDevice(
 
     /** Can a magic packet be sent to it? */
     val canWake: Boolean get() = mac != null
+
+    /** Is Android's debug bridge listening, so this can be driven like a phone? */
+    val isPhone: Boolean get() = serviceSet().contains(AdbProbe.SERVICE)
 }
