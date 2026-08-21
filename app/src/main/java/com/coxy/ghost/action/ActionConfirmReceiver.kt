@@ -4,6 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import org.json.JSONArray
@@ -21,18 +24,31 @@ class ActionConfirmReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             ACTION_CONFIRM -> {
-                val executor = ActionExecutor(context)
-                val results = actions.map { executor.runConfirmed(it) }
-                val lines = results.joinToString("\n") { it.toReplyLine() }
-                Log.i(TAG, "confirmed Tier-3 actions: $lines")
-                val notification = NotificationCompat.Builder(context, ActionExecutor.CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                    .setContentTitle("GHOST action result")
-                    .setContentText(lines)
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(lines))
-                    .setAutoCancel(true)
-                    .build()
-                nm.notify(CONFIRM_NOTIF_ID, notification)
+                // Execution became suspending when network control arrived (a scan, then HTTP to
+                // the device), and onReceive cannot suspend. goAsync keeps the receiver alive
+                // across the coroutine; without it the process could be killed mid-action and the
+                // confirmation would silently do nothing.
+                val pending = goAsync()
+                val appContext = context.applicationContext
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val executor = ActionExecutor(appContext)
+                        val results = actions.map { executor.runConfirmed(it) }
+                        val lines = results.joinToString("\n") { it.toReplyLine() }
+                        Log.i(TAG, "confirmed Tier-3 actions: $lines")
+                        val notification =
+                            NotificationCompat.Builder(appContext, ActionExecutor.CHANNEL_ID)
+                                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                                .setContentTitle("GHOST action result")
+                                .setContentText(lines)
+                                .setStyle(NotificationCompat.BigTextStyle().bigText(lines))
+                                .setAutoCancel(true)
+                                .build()
+                        runCatching { nm.notify(CONFIRM_NOTIF_ID, notification) }
+                    } finally {
+                        pending.finish()
+                    }
+                }
             }
             ACTION_DECLINE -> {
                 Log.i(TAG, "Tier-3 action declined")

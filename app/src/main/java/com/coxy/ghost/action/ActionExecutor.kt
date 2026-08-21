@@ -25,6 +25,7 @@ import org.json.JSONObject
 class ActionExecutor(private val context: Context) {
 
     private val framework = FrameworkExecutor(context)
+    private val lan = com.coxy.ghost.net.LanExecutor(context)
 
     /**
      * Run all actions that do not require confirmation. Returns the results plus a list of Tier 3
@@ -45,9 +46,12 @@ class ActionExecutor(private val context: Context) {
     }
 
     /** Execute a single action regardless of tier (used by the confirmation receiver). */
-    fun runConfirmed(action: Action): ActionResult = runSingle(action)
+    suspend fun runConfirmed(action: Action): ActionResult = runSingle(action)
 
-    private fun runSingle(action: Action): ActionResult {
+    private suspend fun runSingle(action: Action): ActionResult {
+        // Network control suspends (a scan, then HTTP to the device), unlike every other executor
+        // here, which is why runSingle became a suspend function rather than blocking on it.
+        if (action.id in com.coxy.ghost.net.LanExecutor.ACTION_IDS) return lan.run(action)
         return when (action.id) {
             "toggle_wifi", "toggle_bluetooth",
             "force_stop_app", "disable_app", "uninstall_app", "send_sms" -> SuExecutor.run(action)

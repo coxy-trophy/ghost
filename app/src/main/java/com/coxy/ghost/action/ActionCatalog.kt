@@ -91,6 +91,35 @@ object ActionCatalog {
         ),
 
         // Tier 2 — disruptive but recoverable
+        // Home-network control. Tier 2 rather than Tier 1 because these reach *off* the phone: a
+        // paused film or a changed volume is trivially undone, but it happened to something in the
+        // room rather than to a setting. Every one requires `device` — see [com.coxy.ghost.net.LanExecutor].
+        "media_control" to Entry(
+            tier = ActionTier.TIER_2_DISRUPTIVE,
+            requiredParams = listOf("device", "command"),
+            description = "Play, pause, stop, next or previous on a device on the network"
+        ),
+        "set_device_volume" to Entry(
+            tier = ActionTier.TIER_2_DISRUPTIVE,
+            requiredParams = listOf("device", "value"),
+            description = "Set the volume (0-100) on a device on the network"
+        ),
+        "mute_device" to Entry(
+            tier = ActionTier.TIER_2_DISRUPTIVE,
+            requiredParams = listOf("device", "state"),
+            description = "Mute or unmute a device on the network"
+        ),
+        "launch_tv_app" to Entry(
+            tier = ActionTier.TIER_2_DISRUPTIVE,
+            requiredParams = listOf("device", "app"),
+            description = "Open an app (YouTube, Netflix) on a TV on the network"
+        ),
+        "wake_device" to Entry(
+            tier = ActionTier.TIER_1_REVERSIBLE,
+            requiredParams = listOf("device"),
+            description = "Send a wake-on-LAN packet to a device on the network"
+        ),
+
         "force_stop_app" to Entry(
             tier = ActionTier.TIER_2_DISRUPTIVE,
             requiredParams = listOf("package"),
