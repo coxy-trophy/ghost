@@ -19,6 +19,11 @@ data class LanDevice(
     val ip: String,
     /** Advertised name, if anything advertised one. */
     val name: String? = null,
+    /**
+     * What Coxy calls it, if he has said. Beats [name] everywhere it matters, because the thing a
+     * device advertises is often `Smart-TV-4df02b09600928db702d41131980b458`.
+     */
+    val nickname: String? = null,
     /** What it appears to be — "casts", "Hue bridge", "printer". Null when only ARP saw it. */
     val kind: String? = null,
     /** Hardware address, when the ARP table supplied one. The vendor prefix is often the only clue. */
@@ -28,20 +33,27 @@ data class LanDevice(
     /** Raw service types seen, e.g. `_googlecast._tcp`. Kept for the control layer to match on. */
     val services: Set<String> = emptySet(),
     /**
-     * UPnP device-description URL, from SSDP's `LOCATION` header.
+     * UPnP device-description URLs, from SSDP's `LOCATION` headers.
      *
-     * Kept because it is the entry point to actually controlling the device: the XML it returns
-     * lists the services it exposes and the control URL for each. Without it a MediaRenderer is
-     * just an address that admitted to being a MediaRenderer.
+     * A **set**, because one address is often several UPnP root devices. An Android TV answers on
+     * port 8008 with a DIAL description *and* separately with a MediaRenderer description at
+     * another location — and keeping only the first is why "pause the TV" came back as "doesn't
+     * take playback commands" from a television that advertises AVTransport plainly.
+     *
+     * These are the entry point to controlling anything: each XML lists the services that device
+     * exposes and the control URL for each.
      */
-    val descriptionUrl: String? = null,
+    val descriptionUrls: Set<String> = emptySet(),
     /** Which discoveries saw it. Useful when a device is present but unidentifiable. */
     val seenBy: Set<Source> = emptySet()
 ) {
     enum class Source { MDNS, SSDP, ARP }
 
     /** True if anything is known beyond "an address responded". */
-    val isIdentified: Boolean get() = name != null || kind != null
+    val isIdentified: Boolean get() = nickname != null || name != null || kind != null
+
+    /** What to call it: his name for it if he has one, otherwise its own. */
+    val bestName: String? get() = nickname ?: name
 
     /**
      * Merge two sightings of the same address, preferring whichever actually knows something.
@@ -50,9 +62,10 @@ data class LanDevice(
     fun mergedWith(other: LanDevice): LanDevice = LanDevice(
         ip = ip,
         name = name ?: other.name,
+        nickname = nickname ?: other.nickname,
         kind = kind ?: other.kind,
         mac = mac ?: other.mac,
-        descriptionUrl = descriptionUrl ?: other.descriptionUrl,
+        descriptionUrls = descriptionUrls + other.descriptionUrls,
         ports = ports + other.ports,
         services = services + other.services,
         seenBy = seenBy + other.seenBy

@@ -44,10 +44,41 @@ object LanScanner {
     @Volatile private var cache: Result.Scanned? = null
     @Volatile private var scannedAt = 0L
 
+    /**
+     * Control endpoints learned about a device, keyed by MAC or address, accumulated across scans.
+     *
+     * SSDP is multicast UDP and genuinely lossy: consecutive scans of this network returned six
+     * identified devices and then five, and the television that dropped out took its control URLs
+     * with it — so "pause the office TV" worked or failed depending on which round had last run.
+     * A device's UPnP description does not come and go, so once seen it is remembered, and a scan
+     * that misses it no longer takes the capability away.
+     */
+    private val knownUrls = HashMap<String, Set<String>>()
+
     fun invalidate() {
         cache = null
         scannedAt = 0L
     }
+
+    /** Forget learned endpoints too. Only for tests and a genuine "start over". */
+    fun forgetEverything() {
+        invalidate()
+        synchronized(knownUrls) { knownUrls.clear() }
+        UpnpControl.invalidate()
+    }
+
+    /** Fold this scan's endpoints into what is already known, and hand every device the union. */
+    private fun rememberUrls(devices: List<LanDevice>): List<LanDevice> =
+        synchronized(knownUrls) {
+            devices.map { d ->
+                val key = d.mac?.lowercase()?.let { "mac:$it" } ?: "ip:${d.ip}"
+                val merged = (knownUrls[key] ?: emptySet()) + d.descriptionUrls
+                if (merged.isEmpty()) d else {
+                    knownUrls[key] = merged
+                    d.copy(descriptionUrls = merged)
+                }
+            }
+        }
 
     /** The cached scan if it is still fresh, otherwise a new one. */
     suspend fun scan(context: Context, force: Boolean = false): Result {
@@ -70,8 +101,15 @@ object LanScanner {
                 val arp = async { runCatching { ArpSweep.sweep(localIp) }.getOrDefault(emptyList()) }
 
                 // Order is precedence: mDNS names a device best, SSDP second, ARP not at all.
-                val devices = LanDevice.merge(mdns.await() + ssdp.await() + arp.await())
-                    .filterNot { it.ip == localIp }
+                // Coxy's own names go on last and beat all three, because a television calls
+                // itself Smart-TV-4df02b09600928db702d41131980b458 and he does not.
+                val devices = com.coxy.ghost.net.DeviceNames.apply(
+                    rememberUrls(
+                        LanDevice.merge(mdns.await() + ssdp.await() + arp.await())
+                            .filterNot { it.ip == localIp }
+                    ),
+                    com.coxy.ghost.net.DeviceNames.all(context)
+                )
 
                 if (devices.isEmpty()) {
                     Log.w(TAG, "scan found nothing on ${localIp.substringBeforeLast('.')}.0/24")
@@ -87,8 +125,8 @@ object LanScanner {
                 // land on, and when control misbehaves this line is the difference between
                 // "the TV ignored her" and "there was never a TV at that address".
                 devices.filter { it.isIdentified }.forEach {
-                    Log.i(TAG, "  ${it.ip} ${it.kind ?: "?"} \"${it.name ?: "?"}\" " +
-                        "svc=${it.services} url=${it.descriptionUrl ?: "-"}")
+                    Log.i(TAG, "  ${it.ip} ${it.kind ?: "?"} \"${it.bestName ?: "?"}\" " +
+                        "svc=${it.services} urls=${it.descriptionUrls}")
                 }
                 result
             }

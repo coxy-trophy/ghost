@@ -45,6 +45,14 @@ object GhostPrefs {
     private val KEY_WEB_SEARCH_ENABLED = booleanPreferencesKey("web_search_enabled")
 
     /**
+     * Coxy's names for devices on the home network, as a JSON object keyed by `mac:`/`ip:`.
+     *
+     * A JSON blob rather than one key per device because DataStore Preferences has no map type and
+     * the alternative is inventing a key-per-MAC scheme that nothing can enumerate.
+     */
+    private val KEY_DEVICE_NAMES = stringPreferencesKey("device_names")
+
+    /**
      * The "leave the mic on" latch for Live mode.
      *
      * Deliberately a **new key**, not a new default on `mic_enabled`. That key meant "ambient
@@ -118,6 +126,13 @@ object GhostPrefs {
 
     suspend fun setWebSearchEnabled(ctx: Context, enabled: Boolean) {
         ctx.ghostDataStore.edit { p -> p[KEY_WEB_SEARCH_ENABLED] = enabled }
+    }
+
+    suspend fun getDeviceNames(ctx: Context): String? =
+        ctx.ghostDataStore.data.map { it[KEY_DEVICE_NAMES] }.first()
+
+    suspend fun setDeviceNames(ctx: Context, json: String) {
+        ctx.ghostDataStore.edit { p -> p[KEY_DEVICE_NAMES] = json }
     }
 
     suspend fun getModelPath(ctx: Context): String? = modelPathFlow(ctx).first()

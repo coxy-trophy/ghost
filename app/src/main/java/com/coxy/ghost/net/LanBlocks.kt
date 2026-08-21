@@ -42,7 +42,7 @@ object LanBlocks {
 
     /** One device as GHOST should read it: what it is, then where it is. */
     internal fun describe(device: LanDevice): String {
-        val label = device.name?.let { clean(it) }
+        val label = device.bestName?.let { clean(it) }
         val kind = device.kind?.let { clean(it) }
         val head = when {
             label != null && kind != null -> "$label ($kind)"

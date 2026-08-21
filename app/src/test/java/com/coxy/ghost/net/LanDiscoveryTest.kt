@@ -73,7 +73,7 @@ class LanDiscoveryTest {
         assertEquals("192.168.100.24", d.ip)
         assertEquals("media player", d.kind)
         assertEquals("Cling/2.0", d.name)
-        assertEquals("http://192.168.100.24:8008/ssdp/device-desc.xml", d.descriptionUrl)
+        assertEquals(setOf("http://192.168.100.24:8008/ssdp/device-desc.xml"), d.descriptionUrls)
         assertTrue("the port comes out of LOCATION", d.ports.contains(8008))
     }
 
@@ -105,7 +105,7 @@ class LanDiscoveryTest {
                 LanDevice("192.168.100.24", name = "Smart-TV", kind = "casts",
                     services = setOf("_googlecast._tcp"), seenBy = setOf(LanDevice.Source.MDNS)),
                 LanDevice("192.168.100.24", name = "Cling/2.0", kind = "media player",
-                    descriptionUrl = "http://x/d.xml", seenBy = setOf(LanDevice.Source.SSDP)),
+                    descriptionUrls = setOf("http://x/d.xml"), seenBy = setOf(LanDevice.Source.SSDP)),
                 LanDevice("192.168.100.24", mac = "44:0f:b4:00:00:01",
                     seenBy = setOf(LanDevice.Source.ARP))
             )
@@ -115,7 +115,7 @@ class LanDiscoveryTest {
         assertEquals("mDNS names a device best, so it wins", "Smart-TV", d.name)
         assertEquals("casts", d.kind)
         assertEquals("everything else still accumulates", "44:0f:b4:00:00:01", d.mac)
-        assertEquals("http://x/d.xml", d.descriptionUrl)
+        assertEquals(setOf("http://x/d.xml"), d.descriptionUrls)
         assertEquals(setOf(LanDevice.Source.MDNS, LanDevice.Source.SSDP, LanDevice.Source.ARP), d.seenBy)
     }
 

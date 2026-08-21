@@ -38,6 +38,12 @@ object ActionCatalog {
             description = "Read whether Bluetooth is enabled"
         ),
 
+        "device_status" to Entry(
+            tier = ActionTier.TIER_0_READ_ONLY,
+            requiredParams = listOf("device"),
+            description = "Ask a device on the network what it is doing and how loud it is"
+        ),
+
         // Tier 1 — reversible
         "toggle_wifi" to Entry(
             tier = ActionTier.TIER_1_REVERSIBLE,
@@ -113,6 +119,11 @@ object ActionCatalog {
             tier = ActionTier.TIER_2_DISRUPTIVE,
             requiredParams = listOf("device", "app"),
             description = "Open an app (YouTube, Netflix) on a TV on the network"
+        ),
+        "name_device" to Entry(
+            tier = ActionTier.TIER_1_REVERSIBLE,
+            requiredParams = listOf("device", "name"),
+            description = "Remember what Coxy calls a device on the network"
         ),
         "wake_device" to Entry(
             tier = ActionTier.TIER_1_REVERSIBLE,

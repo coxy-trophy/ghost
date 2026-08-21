@@ -28,10 +28,10 @@ object SsdpDiscovery {
     private const val PORT = 1900
 
     /** Seconds devices may wait before replying. Their stagger window, and so also ours. */
-    private const val MX = 2
+    private const val MX = 3
 
     /** A little longer than MX, to catch the ones that answer at the very edge of it. */
-    private const val LISTEN_MS = 3_500
+    private const val LISTEN_MS = 5_000
 
     private val SEARCH = buildString {
         append("M-SEARCH * HTTP/1.1\r\n")
@@ -54,8 +54,10 @@ object SsdpDiscovery {
             }
             val payload = SEARCH.toByteArray()
             val target = InetSocketAddress(InetAddress.getByName(ADDRESS), PORT)
-            // Sent twice: UDP multicast is lossy and a dropped search is a silent empty result.
-            repeat(2) {
+            // Sent three times: UDP multicast is lossy and a dropped search is a silent empty
+            // result. Consecutive scans of a real network returned six identified devices and then
+            // five — the missing one being a television that simply did not answer that round.
+            repeat(3) {
                 runCatching { socket.send(DatagramPacket(payload, payload.size, target)) }
             }
 
@@ -107,7 +109,7 @@ object SsdpDiscovery {
             kind = kindFor(st, server),
             ports = setOfNotNull(port),
             services = setOfNotNull(st),
-            descriptionUrl = location,
+            descriptionUrls = setOfNotNull(location),
             seenBy = setOf(LanDevice.Source.SSDP)
         )
     }

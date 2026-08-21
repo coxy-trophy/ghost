@@ -59,9 +59,28 @@ object UpnpControl {
                 Log.w(TAG, "could not read device description at $descriptionUrl", it)
                 emptyMap()
             }
-            synchronized(serviceCache) { serviceCache[descriptionUrl] = parsed }
+            // Only a useful answer is cached. Caching the empty one would make any transient
+            // failure permanent for the life of the process: the first status query on this network
+            // failed on a cleartext-policy error, and without this the device would have stayed
+            // "doesn't take those commands" for ever afterwards even once the policy was fixed.
+            if (parsed.isNotEmpty()) synchronized(serviceCache) { serviceCache[descriptionUrl] = parsed }
             parsed
         }
+
+    /**
+     * Find [type] across every description a device published.
+     *
+     * One address is commonly several UPnP root devices — an Android TV publishes a DIAL
+     * description and a MediaRenderer description separately — so the service being looked for may
+     * not be in the first document fetched, and a device that plainly advertises AVTransport will
+     * otherwise look like it takes no playback commands.
+     */
+    suspend fun findService(descriptionUrls: Collection<String>, type: String): Service? {
+        for (url in descriptionUrls) {
+            services(url)[type]?.let { return it }
+        }
+        return null
+    }
 
     /**
      * Send one SOAP action.

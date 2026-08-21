@@ -23,7 +23,8 @@ class LanExecutor(private val context: Context) {
         private const val TAG = "LanExecutor"
 
         val ACTION_IDS = setOf(
-            "media_control", "set_device_volume", "mute_device", "launch_tv_app", "wake_device"
+            "media_control", "set_device_volume", "mute_device", "launch_tv_app", "wake_device",
+            "name_device", "device_status"
         )
     }
 
@@ -57,11 +58,13 @@ class LanExecutor(private val context: Context) {
 
         return runCatching {
             when (action.id) {
+                "device_status" -> status(device)
                 "media_control" -> mediaControl(device, action.params["command"].orEmpty())
                 "set_device_volume" -> setVolume(device, action.params["value"].orEmpty())
                 "mute_device" -> setMute(device, action.params["state"].orEmpty())
                 "launch_tv_app" -> launchApp(device, action.params["app"].orEmpty())
                 "wake_device" -> wake(device)
+                "name_device" -> name(device, action.params["name"].orEmpty())
                 else -> return fail(action, "not implemented in LanExecutor")
             }
         }.fold(
@@ -84,10 +87,55 @@ class LanExecutor(private val context: Context) {
         type: String,
         what: String
     ): UpnpControl.Service {
-        val url = device.descriptionUrl
-            ?: throw IllegalStateException("${nameOf(device)} doesn't publish a way to control it")
-        return UpnpControl.services(url)[type]
+        if (device.descriptionUrls.isEmpty()) {
+            throw IllegalStateException("${nameOf(device)} doesn't publish a way to control it")
+        }
+        return UpnpControl.findService(device.descriptionUrls, type)
             ?: throw IllegalStateException("${nameOf(device)} doesn't take $what commands")
+    }
+
+    /**
+     * Read-only: what the device is doing, and how loud.
+     *
+     * Tier 0, and the only network action that changes nothing — which also makes it the one that
+     * can be run on a device to find out whether it will take commands at all, without being the
+     * reason someone's film stopped.
+     */
+    private suspend fun status(device: LanDevice): String {
+        val parts = mutableListOf<String>()
+
+        UpnpControl.findService(device.descriptionUrls, UpnpControl.RENDERING_CONTROL)?.let { rc ->
+            UpnpControl.invoke(
+                rc, "GetVolume", listOf("InstanceID" to "0", "Channel" to "Master")
+            ).getOrNull()?.let { body ->
+                UpnpControl.valueIn(body, "CurrentVolume")?.let { parts += "volume $it" }
+            }
+            UpnpControl.invoke(
+                rc, "GetMute", listOf("InstanceID" to "0", "Channel" to "Master")
+            ).getOrNull()?.let { body ->
+                if (UpnpControl.valueIn(body, "CurrentMute") == "1") parts += "muted"
+            }
+        }
+
+        UpnpControl.findService(device.descriptionUrls, UpnpControl.AV_TRANSPORT)?.let { av ->
+            UpnpControl.invoke(av, "GetTransportInfo", listOf("InstanceID" to "0"))
+                .getOrNull()?.let { body ->
+                    UpnpControl.valueIn(body, "CurrentTransportState")?.let {
+                        parts += when (it) {
+                            "PLAYING" -> "playing"
+                            "PAUSED_PLAYBACK" -> "paused"
+                            "STOPPED" -> "stopped"
+                            "NO_MEDIA_PRESENT" -> "nothing playing"
+                            else -> it.lowercase()
+                        }
+                    }
+                }
+        }
+
+        if (parts.isEmpty()) {
+            throw IllegalStateException("${nameOf(device)} didn't answer any status question")
+        }
+        return "${nameOf(device)}: ${parts.joinToString(", ")}"
     }
 
     private suspend fun mediaControl(device: LanDevice, command: String): String {
@@ -132,12 +180,29 @@ class LanExecutor(private val context: Context) {
 
     private suspend fun launchApp(device: LanDevice, app: String): String {
         if (app.isBlank()) throw IllegalArgumentException("name the app to open")
-        val url = device.descriptionUrl
-            ?: throw IllegalStateException("${nameOf(device)} doesn't publish a way to control it")
-        val appUrl = DialControl.applicationUrl(url)
+        if (device.descriptionUrls.isEmpty()) {
+            throw IllegalStateException("${nameOf(device)} doesn't publish a way to control it")
+        }
+        // Same reason as serviceOrThrow: the Application-URL header is on the DIAL description,
+        // which may not be the first one this device published.
+        val appUrl = device.descriptionUrls.firstNotNullOfOrNull { DialControl.applicationUrl(it) }
             ?: throw IllegalStateException("${nameOf(device)} can't open apps this way")
         val opened = DialControl.launch(appUrl, app).getOrThrow()
         return "${nameOf(device)}: opened $opened"
+    }
+
+    private suspend fun name(device: LanDevice, name: String): String {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) throw IllegalArgumentException("what should I call it?")
+        val key = DeviceNames.set(context, device, trimmed)
+        // Invalidated so the very next command sees the new name; without this the cached scan
+        // would keep the old label for up to two minutes and "turn up the office TV" would still
+        // come back as a three-way question immediately after naming it.
+        LanScanner.invalidate()
+        val stability =
+            if (key.startsWith("mac:")) "that'll stick even if its address changes"
+            else "only by address, so it may not stick if the router moves it"
+        return "${nameOf(device)} is now \"$trimmed\" — $stability"
     }
 
     private suspend fun wake(device: LanDevice): String {
@@ -152,7 +217,7 @@ class LanExecutor(private val context: Context) {
     }
 
     private fun nameOf(device: LanDevice): String =
-        device.name ?: device.kind ?: device.ip
+        device.bestName ?: device.kind ?: device.ip
 
     private fun fail(action: Action, reason: String) = ActionResult(action.id, false, reason)
 }

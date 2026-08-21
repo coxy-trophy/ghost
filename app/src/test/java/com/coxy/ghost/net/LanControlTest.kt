@@ -14,7 +14,7 @@ class LanControlTest {
     private val tv24 = LanDevice(
         "192.168.100.24", name = "Smart-TV-b2ad128c479835a5e8bd00857b54fc5b", kind = "casts",
         services = setOf("_googlecast._tcp", "urn:schemas-upnp-org:device:MediaRenderer:1"),
-        descriptionUrl = "http://192.168.100.24:8008/ssdp/device-desc.xml"
+        descriptionUrls = setOf("http://192.168.100.24:8008/ssdp/device-desc.xml")
     )
     private val tv25 = LanDevice(
         "192.168.100.25", name = "Smart-TV-bfc60fb207f8fd3a70df58fb3a9aad44", kind = "casts",
@@ -22,7 +22,7 @@ class LanControlTest {
     )
     private val tv98 = LanDevice(
         "192.168.100.98", name = "Smart-TV-4df02b09600928db702d41131980b458", kind = "casts",
-        descriptionUrl = "http://192.168.100.98:8008/ssdp/device-desc.xml"
+        descriptionUrls = setOf("http://192.168.100.98:8008/ssdp/device-desc.xml")
     )
     private val printer = LanDevice(
         "169.254.95.112", name = "HP Color LaserJet MFP M283fdw (5C3264)", kind = "printer"
@@ -167,5 +167,106 @@ class LanControlTest {
             val errors = com.coxy.ghost.action.ActionCatalog.validate(id, mapOf())
             assertTrue("$id must require a device", errors.any { it.contains("device") })
         }
+    }
+}
+
+/**
+ * Naming. The televisions on this network advertise as `Smart-TV-<32 hex>` and nothing else, so
+ * without this the control layer resolves nothing a person would actually say.
+ */
+class DeviceNamesTest {
+
+    private val tv98 = LanDevice(
+        "192.168.100.98", name = "Smart-TV-4df02b09600928db702d41131980b458", kind = "casts",
+        mac = "44:0f:b4:00:00:02"
+    )
+    private val tv24 = LanDevice(
+        "192.168.100.24", name = "Smart-TV-b2ad128c479835a5e8bd00857b54fc5b", kind = "casts",
+        mac = "44:0f:b4:00:00:01"
+    )
+    private val noMac = LanDevice("192.168.100.55", name = "Odd-Thing")
+
+    @Test
+    fun `a device with a mac is keyed by it, not by its address`() {
+        // A DHCP lease expiring would otherwise point "office TV" at whatever took the address.
+        assertEquals("mac:44:0f:b4:00:00:02", DeviceNames.keyFor(tv98))
+    }
+
+    @Test
+    fun `a device with no mac falls back to its address`() {
+        assertEquals("ip:192.168.100.55", DeviceNames.keyFor(noMac))
+    }
+
+    @Test
+    fun `a mac key is matched case-insensitively`() {
+        assertEquals(
+            DeviceNames.keyFor(tv98),
+            DeviceNames.keyFor(tv98.copy(mac = "44:0F:B4:41:89:70"))
+        )
+    }
+
+    @Test
+    fun `a stored name survives the device changing address`() {
+        val names = mapOf("mac:44:0f:b4:00:00:02" to "office TV")
+        val moved = tv98.copy(ip = "192.168.100.140")
+        assertEquals("office TV", DeviceNames.apply(listOf(moved), names).first().nickname)
+    }
+
+    @Test
+    fun `a name given by address still applies once a mac is learned`() {
+        val names = mapOf("ip:192.168.100.98" to "office TV")
+        assertEquals("office TV", DeviceNames.apply(listOf(tv98), names).first().nickname)
+    }
+
+    @Test
+    fun `only the named device gets the name`() {
+        val applied = DeviceNames.apply(
+            listOf(tv24, tv98), mapOf("mac:44:0f:b4:00:00:02" to "office TV")
+        )
+        assertEquals(null, applied.first { it.ip == tv24.ip }.nickname)
+        assertEquals("office TV", applied.first { it.ip == tv98.ip }.nickname)
+    }
+
+    @Test
+    fun `his name beats the advertised one everywhere it shows`() {
+        val named = tv98.copy(nickname = "office TV")
+        assertEquals("office TV", named.bestName)
+        assertEquals("office TV at 192.168.100.98", DeviceMatcher.label(named))
+    }
+
+    @Test
+    fun `naming one television makes 'the TV' unambiguous no longer`() {
+        // Before: three candidates. After: "office TV" reaches exactly one.
+        val network = listOf(tv24, tv98.copy(nickname = "office TV"))
+        val r = DeviceMatcher.resolve("office TV", network)
+        assertEquals("192.168.100.98", (r as DeviceMatcher.Resolution.Match).device.ip)
+    }
+
+    @Test
+    fun `a nickname beats another device's advertised name`() {
+        val decoy = LanDevice("192.168.100.7", name = "office-printer", kind = "printer")
+        val network = listOf(decoy, tv98.copy(nickname = "office"))
+        val r = DeviceMatcher.resolve("office", network)
+        assertEquals("192.168.100.98", (r as DeviceMatcher.Resolution.Match).device.ip)
+    }
+
+    @Test
+    fun `names round-trip through storage`() {
+        val names = mapOf("mac:44:0f:b4:00:00:02" to "office TV", "ip:192.168.100.55" to "odd one")
+        assertEquals(names, DeviceNames.parse(DeviceNames.render(names)))
+    }
+
+    @Test
+    fun `unreadable stored names start empty rather than crashing`() {
+        assertTrue(DeviceNames.parse("{not json").isEmpty())
+        assertTrue(DeviceNames.parse(null).isEmpty())
+        assertTrue(DeviceNames.parse("").isEmpty())
+    }
+
+    @Test
+    fun `naming requires both the device and the name`() {
+        val errors = com.coxy.ghost.action.ActionCatalog.validate("name_device", mapOf())
+        assertTrue(errors.any { it.contains("device") })
+        assertTrue(errors.any { it.contains("name") })
     }
 }

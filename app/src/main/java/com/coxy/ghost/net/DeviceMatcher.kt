@@ -67,6 +67,17 @@ object DeviceMatcher {
         val byIp = devices.filter { it.ip == query.trim() || normalize(it.ip) == q }
         if (byIp.isNotEmpty()) return one(byIp)
 
+        // His name for it first, and as its own tier: if he has called something "office TV",
+        // that must beat another device whose advertised name happens to contain "office".
+        val exactNickname = devices.filter { it.nickname != null && normalize(it.nickname) == q }
+        if (exactNickname.isNotEmpty()) return one(exactNickname)
+
+        val partialNickname = devices.filter {
+            val n = it.nickname?.let(::normalize) ?: return@filter false
+            q.length >= MIN_CONTAINS && (n.startsWith(q) || n.contains(q))
+        }
+        if (partialNickname.isNotEmpty()) return one(partialNickname)
+
         val exactName = devices.filter { it.name != null && normalize(it.name) == q }
         if (exactName.isNotEmpty()) return one(exactName)
 
@@ -96,8 +107,15 @@ object DeviceMatcher {
         if (hits.size == 1) Resolution.Match(hits.first())
         else Resolution.Ambiguous(hits.sortedBy { it.ip })
 
-    /** How to name a device back to Coxy when asking which one he meant. */
+    /**
+     * How to name a device back to Coxy when asking which one he meant.
+     *
+     * His name for it wins outright and the advertised one is dropped, not appended: the whole
+     * point of naming the office TV is never to read
+     * `Smart-TV-4df02b09600928db702d41131980b458` again.
+     */
     fun label(device: LanDevice): String = when {
+        device.nickname != null -> "${device.nickname} at ${device.ip}"
         device.name != null && device.kind != null -> "${device.name} (${device.kind}) at ${device.ip}"
         device.name != null -> "${device.name} at ${device.ip}"
         device.kind != null -> "${device.kind} at ${device.ip}"

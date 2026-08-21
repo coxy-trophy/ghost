@@ -42,8 +42,8 @@ android {
         minSdk = 33
         targetSdk = 36
 
-        versionCode = 45
-        versionName = "0.19.0"
+        versionCode = 46
+        versionName = "0.20.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -51,6 +51,15 @@ android {
         }
 
         buildConfigField("String", "OLLAMA_API_KEY", "\"$ollamaApiKey\"")
+    }
+
+    // android.util.Log throws "not mocked" in JVM unit tests, so any class that logs on a failure
+    // path — which is most of them — could only be tested on a device. Defaults instead of throws
+    // makes those paths testable; the instrumented suite still runs against the real framework.
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
     }
 
     buildFeatures {

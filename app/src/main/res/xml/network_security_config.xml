@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP, for the home network only in practice.
+
+  UPnP, SSDP and DIAL are cleartext protocols with no TLS variant — a television's SOAP control
+  endpoint is http:// and there is no https:// alternative to prefer. Since targetSdk 28 Android
+  blocks cleartext by default, which surfaced as "Cleartext HTTP traffic to 192.168.100.24 not
+  permitted" the first time GHOST tried to ask a TV its volume.
+
+  Android's network security config cannot express "private address ranges", only literal domains,
+  and the addresses here are handed out by DHCP — so there is no way to scope this to the LAN
+  declaratively. The permission is therefore app-wide, and that is safe here for a specific reason:
+  **every outbound internet call in this app is a hardcoded https:// URL** — Ollama's chat, search
+  and fetch endpoints in OllamaCloudClient and WebClient. Nothing constructs a scheme from input,
+  so there is no request that this could silently downgrade.
+
+  The alternative was hand-rolling HTTP over raw sockets purely to sidestep the policy, which trades
+  a real, reviewable declaration for an unreviewable one.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
