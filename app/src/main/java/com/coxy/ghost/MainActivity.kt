@@ -861,27 +861,33 @@ class MainActivity : AppCompatActivity() {
 
                     stream(prompt)
 
-                    // The one action whose result is input rather than output. If she asked to look
-                    // something up, the reply so far is the request, not the answer: run the search
-                    // and generate again with what came back. The first reply is dropped — showing
-                    // it would mean Coxy reads "let me check" and then watches it be replaced.
+                    // The two actions whose results are input rather than output. If she asked to
+                    // look something up, the reply so far is the request, not the answer: make the
+                    // call and generate again with what came back. Each earlier reply is dropped —
+                    // showing it would mean Coxy reads "let me check" and watches it be replaced.
                     //
-                    // Only ever one extra pass. The second reply is not re-examined for a search,
-                    // so a model that keeps asking cannot spend the turn in a loop.
-                    com.coxy.ghost.web.WebSearchTurn.queryIn(lastAssistantMsg.toString())?.let { q ->
-                        val block = com.coxy.ghost.web.WebSearchTurn.blockFor(this@MainActivity, q)
+                    // A loop rather than a single extra pass, so search-then-read-the-best-result
+                    // works, bounded by MAX_STEPS so a model that keeps asking runs out of steps.
+                    var webPrompt = prompt
+                    var webSteps = 0
+                    while (webSteps < com.coxy.ghost.web.WebTurn.MAX_STEPS) {
+                        val req = com.coxy.ghost.web.WebTurn
+                            .requestIn(lastAssistantMsg.toString()) ?: break
                         withContext(Dispatchers.Main) {
                             val n = messages.size
                             check(n > 0 && !messages[n - 1].isUser)
-                            lastAssistantMsg.clear()
-                            messages.removeAt(n - 1).copy(content = getString(R.string.ghost_searching))
+                            messages.removeAt(n - 1)
+                                .copy(content = com.coxy.ghost.web.WebTurn.placeholderFor(this@MainActivity, req))
                                 .let { messages.add(it) }
                             messageAdapter.notifyItemChanged(messages.size - 1)
                         }
-                        // Clear again: the placeholder above is what he reads while the second pass
-                        // spins up, but it must not become the head of the real reply.
+                        val block = com.coxy.ghost.web.WebTurn.blockFor(this@MainActivity, req)
+                        webPrompt = com.coxy.ghost.web.WebTurn.withBlock(webPrompt, block)
+                        // The placeholder is what he reads while the next pass spins up, but it
+                        // must not become the head of the real reply.
                         lastAssistantMsg.clear()
-                        stream(com.coxy.ghost.web.WebSearchTurn.secondPassPrompt(prompt, block))
+                        stream(webPrompt)
+                        webSteps++
                     }
 
                     // After the reply completes (engine idle): parse any actions, execute them, strip

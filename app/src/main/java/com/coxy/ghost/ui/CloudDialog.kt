@@ -68,8 +68,9 @@ class CloudDialog(
         container.addView(loggingSwitch)
 
         // Separate from the cloud switch above on purpose: that one governs what reaches Ollama's
-        // chat model, while a search query also reaches a search index — an exposure none of the
-        // privacy modes below say anything about.
+        // chat model, while a search query reaches a search index and a fetch tells Ollama which
+        // page to go and read — exposures none of the privacy modes below say anything about. One
+        // switch covers both, because they are the same class of thing leaving the device.
         val webSearchSwitch = android.widget.Switch(activity).apply {
             text = activity.getString(R.string.ghost_web_search)
             isChecked = webSearchEnabled

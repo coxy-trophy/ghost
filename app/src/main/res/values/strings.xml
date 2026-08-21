@@ -82,5 +82,6 @@
     <string name="ghost_speaker_ghost">GHOST</string>
     <string name="ghost_speaker_user">YOU</string>
     <string name="ghost_searching">Looking it up…</string>
-    <string name="ghost_web_search">Allow web search</string>
+    <string name="ghost_reading">Reading the page…</string>
+    <string name="ghost_web_search">Allow web access</string>
 </resources>

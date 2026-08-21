@@ -682,16 +682,23 @@ class GhostService : LifecycleService() {
 
             stream(prompt)
 
-            // The second pass, identical in rule to the typed path: a search result is input, not
+            // The extra passes, identical in rule to the typed path: a web result is input, not
             // output, so if she asked to look something up the reply so far is the request and has
             // to be replaced by an answer. Wired here as well as in MainActivity because prompt
             // assembly on these two paths has drifted apart before, and a spoken "what's the
-            // weather" that silently cannot search would be exactly that drift again.
-            com.coxy.ghost.web.WebSearchTurn.queryIn(sb.toString())?.let { q ->
-                val block = com.coxy.ghost.web.WebSearchTurn.blockFor(applicationContext, q)
+            // weather" that silently could not search would be exactly that drift again.
+            var webPrompt = prompt
+            var webSteps = 0
+            while (webSteps < com.coxy.ghost.web.WebTurn.MAX_STEPS) {
+                val req = com.coxy.ghost.web.WebTurn.requestIn(sb.toString()) ?: break
+                ContextStore.update {
+                    it.copy(voiceResponse = com.coxy.ghost.web.WebTurn.placeholderFor(applicationContext, req))
+                }
+                val block = com.coxy.ghost.web.WebTurn.blockFor(applicationContext, req)
+                webPrompt = com.coxy.ghost.web.WebTurn.withBlock(webPrompt, block)
                 sb.setLength(0)
-                ContextStore.update { it.copy(voiceResponse = "") }
-                stream(com.coxy.ghost.web.WebSearchTurn.secondPassPrompt(prompt, block))
+                stream(webPrompt)
+                webSteps++
             }
             Log.i(TAG, "voice response: ${sb.toString().take(120)}")
 
