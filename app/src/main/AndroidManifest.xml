@@ -1,6 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      Package visibility for launch_app. Without this, targetSdk 30+ filters queryIntentActivities
+      down to almost nothing and AppIndex comes back holding only GHOST herself — silently, with no
+      error, so the symptom is "she can't find any app" rather than a permission failure.
+
+      Scoped to launchable activities rather than QUERY_ALL_PACKAGES: this is exactly the set of
+      apps that can be opened, and nothing here needs to see the ones that cannot.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />

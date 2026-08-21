@@ -12,6 +12,14 @@ object ActionCatalog {
         val tier: ActionTier,
         val requiredParams: List<String> = emptyList(),
         val optionalParams: List<String> = emptyList(),
+        /**
+         * Params where at least one must be present, but which one is up to the caller.
+         *
+         * Added for `launch_app`, which takes either a `name` or a `package` — the model is meant
+         * to send the name, but a cloud model that genuinely knows the package should not be
+         * rejected for using it, and neither should be mandatory when the other is there.
+         */
+        val anyOfParams: List<String> = emptyList(),
         val description: String
     )
 
@@ -59,8 +67,8 @@ object ActionCatalog {
         ),
         "launch_app" to Entry(
             tier = ActionTier.TIER_1_REVERSIBLE,
-            requiredParams = listOf("package"),
-            description = "Launch an installed app by package name"
+            anyOfParams = listOf("name", "package"),
+            description = "Open an installed app, named the way Coxy would say it"
         ),
 
         // Tier 2 — disruptive but recoverable
@@ -97,11 +105,17 @@ object ActionCatalog {
     /** All known action IDs. */
     fun ids(): Set<String> = catalog.keys
 
-    /** Validate that required params are present. */
+    /** Validate that required params are present, and that any either/or group is satisfied. */
     fun validate(actionId: String, params: Map<String, String>): List<String> {
         val entry = lookup(actionId) ?: return listOf("unknown action '$actionId'")
-        val missing = entry.requiredParams.filter { it !in params || params[it].isNullOrBlank() }
-        return missing.map { "missing required param '$it'" }
+        fun given(key: String) = !params[key].isNullOrBlank()
+        val errors = entry.requiredParams.filterNot(::given)
+            .map { "missing required param '$it'" }
+            .toMutableList()
+        if (entry.anyOfParams.isNotEmpty() && entry.anyOfParams.none(::given)) {
+            errors += "missing one of ${entry.anyOfParams.joinToString("/") { "'$it'" }}"
+        }
+        return errors
     }
 
     /** Human-readable description of an action. */
@@ -113,9 +127,8 @@ object ActionCatalog {
      * parentheses; Tier 3 entries are marked because they only count after Coxy says yes.
      */
     fun promptList(): String = catalog.entries.joinToString("; ") { (id, entry) ->
-        val params =
-            if (entry.requiredParams.isEmpty()) ""
-            else entry.requiredParams.joinToString(",", "(", ")")
+        val shown = entry.requiredParams + entry.anyOfParams.take(1)
+        val params = if (shown.isEmpty()) "" else shown.joinToString(",", "(", ")")
         val confirm = if (entry.tier == ActionTier.TIER_3_DESTRUCTIVE) " [only after he says yes]" else ""
         "$id$params$confirm"
     }

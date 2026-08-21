@@ -29,7 +29,7 @@ class FrameworkExecutor(private val context: Context) {
                     parseInt(action.params["value"], 0, 100),
                     action.params["stream"] ?: "music"
                 )
-                "launch_app" -> launchApp(sanitizePackage(action.params["package"]))
+                "launch_app" -> launchApp(action.params["name"] ?: action.params["package"] ?: "")
                 else -> return ActionResult(action.id, false, "not implemented in FrameworkExecutor")
             }
             ActionResult(action.id, true, output)
@@ -90,13 +90,45 @@ class FrameworkExecutor(private val context: Context) {
         return "${streamName.lowercase()} volume set to $value%"
     }
 
-    private fun launchApp(pkg: String): String {
-        val pm = context.packageManager
-        val intent = pm.getLaunchIntentForPackage(pkg)
-            ?: throw IllegalArgumentException("no launcher intent for $pkg")
+    /**
+     * Open an app named the way Coxy would say it.
+     *
+     * Deliberately *not* run through [PackageNames.sanitize], unlike every other package-taking
+     * action: those interpolate into a `su` command line, this one goes to PackageManager, and the
+     * sanitizer's pattern rejects any name with a space — "Google Meet" would never have got here.
+     *
+     * The safety property is stronger than sanitizing anyway: the package that actually launches is
+     * always one [AppIndex] produced from the device, never the model's string. A hallucinated name
+     * can only fail to resolve; it cannot become a package that gets started.
+     */
+    private fun launchApp(query: String): String {
+        if (query.isBlank()) throw IllegalArgumentException("no app named")
+        return when (val r = AppIndex.resolve(context, query)) {
+            is AppMatcher.Resolution.Match -> start(r.entry)
+
+            // Reported rather than guessed at. Coxy seeing the wrong app open, with nothing said
+            // about why, is a worse outcome than being asked which one he meant.
+            is AppMatcher.Resolution.Ambiguous ->
+                throw IllegalArgumentException(
+                    "'$query' matches ${r.candidates.size} apps: " +
+                        r.candidates.joinToString(", ") { it.label } + " — which one?"
+                )
+
+            is AppMatcher.Resolution.None -> {
+                val hint =
+                    if (r.near.isEmpty()) ""
+                    else " (closest: " + r.near.joinToString(", ") { it.label } + ")"
+                throw IllegalArgumentException("no app called '$query' is installed$hint")
+            }
+        }
+    }
+
+    private fun start(entry: AppMatcher.AppEntry): String {
+        val intent = context.packageManager.getLaunchIntentForPackage(entry.pkg)
+            ?: throw IllegalArgumentException("${entry.label} cannot be opened directly")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
-        return "launched $pkg"
+        return "opened ${entry.label}"
     }
 
 
@@ -106,7 +138,6 @@ class FrameworkExecutor(private val context: Context) {
             ?: throw IllegalArgumentException("'$raw' is not an integer")
     }
 
-    private fun sanitizePackage(pkg: String?): String = PackageNames.sanitize(pkg)
 
     companion object {
         private const val TAG = "FrameworkExecutor"
