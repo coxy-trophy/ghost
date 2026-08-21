@@ -665,6 +665,9 @@ class GhostService : LifecycleService() {
                         }
                 }
 
+            // Same as the typed path: applied here, not left to the model. See [DeviceNameSignal].
+            val namingAck = com.coxy.ghost.net.DeviceNamer.applyFromText(applicationContext, cmd)
+
             val cs = ContextStore.state.value
             // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block
             // (rides the sendUserPrompt string alongside [CONTEXT]). recall runs off the engine's
@@ -706,6 +709,7 @@ class GhostService : LifecycleService() {
             // surface Tier 3 actions for confirmation. Also strip the deprecated "Ghost:" prefix.
             val finalReply = stripGhostPrefix(ActionRunner.run(actionExecutor, sb.toString()))
                 .let { if (nudgeAck != null) "$it\n\n$nudgeAck" else it }
+                .let { if (namingAck != null) "$it\n$namingAck" else it }
             ContextStore.update { it.copy(voiceResponse = finalReply) }
 
             // After the reply completes (engine idle): persist the turn pair for future recall.

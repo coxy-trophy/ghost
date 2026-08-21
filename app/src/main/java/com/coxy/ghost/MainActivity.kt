@@ -839,6 +839,11 @@ class MainActivity : AppCompatActivity() {
                             }
                     }
 
+                    // Naming a device is applied here rather than left to the model. Twice it
+                    // replied "I've locked that in" and emitted no action; see [DeviceNameSignal].
+                    val namingAck = com.coxy.ghost.net.DeviceNamer
+                        .applyFromText(this@MainActivity, userMsg)
+
                     val cs = ContextStore.state.value
                     // Phase 6: recall semantically similar past turns and prepend a [MEMORY] block.
                     // recall runs off llamaDispatcher (TFLite + Room), engine idle. Assembly is
@@ -895,6 +900,7 @@ class MainActivity : AppCompatActivity() {
                     val rawReply = lastAssistantMsg.toString()
                     val reply = stripGhostPrefix(ActionRunner.run(actionExecutor, rawReply))
                         .let { if (nudgeAck != null) "$it\n\n$nudgeAck" else it }
+                        .let { if (namingAck != null) "$it\n$namingAck" else it }
                     finalReply = reply
 
                     // Update the assistant bubble if action results changed the text.
