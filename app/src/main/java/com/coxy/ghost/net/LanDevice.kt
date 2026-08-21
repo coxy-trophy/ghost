@@ -44,10 +44,22 @@ data class LanDevice(
      * exposes and the control URL for each.
      */
     val descriptionUrls: Set<String> = emptySet(),
+    /**
+     * When this device was last actually seen, if it is being recalled rather than observed.
+     *
+     * Null means "answering right now". A value means it is remembered from a previous scan and
+     * may well be switched off — which is a thing to say out loud rather than to hide, because
+     * "the office TV, but it hasn't answered since Tuesday" and "there is no office TV" are very
+     * different answers to the same command.
+     */
+    val lastSeenMs: Long? = null,
     /** Which discoveries saw it. Useful when a device is present but unidentifiable. */
     val seenBy: Set<Source> = emptySet()
 ) {
-    enum class Source { MDNS, SSDP, ARP }
+    enum class Source { MDNS, SSDP, ARP, REMEMBERED }
+
+    /** True if this is a recollection rather than something that just answered. */
+    val isStale: Boolean get() = lastSeenMs != null
 
     /** True if anything is known beyond "an address responded". */
     val isIdentified: Boolean get() = nickname != null || name != null || kind != null
@@ -66,6 +78,9 @@ data class LanDevice(
         kind = kind ?: other.kind,
         mac = mac ?: other.mac,
         descriptionUrls = descriptionUrls + other.descriptionUrls,
+        // A live sighting always wins over a recalled one.
+        lastSeenMs = if (lastSeenMs == null || other.lastSeenMs == null) null
+                     else maxOf(lastSeenMs, other.lastSeenMs),
         ports = ports + other.ports,
         services = services + other.services,
         seenBy = seenBy + other.seenBy

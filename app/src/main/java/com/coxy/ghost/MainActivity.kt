@@ -96,6 +96,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var screenLive: View
     private lateinit var screenSystem: View
     private lateinit var screenPerception: View
+    private lateinit var screenDevices: View
+    private lateinit var devicesPanel: com.coxy.ghost.ui.DevicesPanel
 
     /** The Senses screen. Fed from ContextStore by the same collector that drives the chips. */
     private lateinit var perceptionPanel: com.coxy.ghost.ui.PerceptionPanel
@@ -202,6 +204,8 @@ class MainActivity : AppCompatActivity() {
         screenLive = findViewById(R.id.screen_live)
         screenSystem = findViewById(R.id.screen_system)
         screenPerception = findViewById(R.id.screen_perception)
+        screenDevices = findViewById(R.id.screen_devices)
+        devicesPanel = com.coxy.ghost.ui.DevicesPanel(screenDevices, lifecycleScope)
         perceptionPanel = com.coxy.ghost.ui.PerceptionPanel(findViewById(R.id.perception_web))
         perceptionPanel.attach()
         sensorChips = findViewById(R.id.sensor_chips)
@@ -224,6 +228,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.nav_live).setOnClickListener { showTab(Tab.LIVE) }
         findViewById<View>(R.id.nav_system).setOnClickListener { showTab(Tab.SYSTEM) }
         findViewById<View>(R.id.nav_senses).setOnClickListener { showTab(Tab.SENSES) }
+        findViewById<View>(R.id.nav_devices).setOnClickListener { showTab(Tab.DEVICES) }
         // One observer on the adapter covers every path that can add a turn — typed, voice, and the
         // history replayed at launch — which eight separate call sites would not have.
         messageAdapter.registerAdapterDataObserver(
@@ -303,6 +308,9 @@ class MainActivity : AppCompatActivity() {
         // first run — off the main thread) and load recent turns into the chat list so the user
         // sees continuity across process death (the in-memory list is otherwise lost on kill).
         lifecycleScope.launch(Dispatchers.IO) {
+            // Before anything reads memory: clear turns that were never really said. See
+            // [MemoryStore.runCleanups].
+            runCatching { memoryStore.runCleanups(applicationContext) }
             Embedder.init(applicationContext)
             val recent = memoryStore.recent(20)
             if (recent.isNotEmpty()) {
@@ -433,7 +441,7 @@ class MainActivity : AppCompatActivity() {
         btnMic.isEnabled = GhostService.isRunning
     }
 
-    private enum class Tab { CHAT, LIVE, SYSTEM, SENSES }
+    private enum class Tab { CHAT, LIVE, SYSTEM, SENSES, DEVICES }
 
     private var currentTab = Tab.CHAT
 
@@ -472,6 +480,10 @@ class MainActivity : AppCompatActivity() {
         screenLive.visibility = if (tab == Tab.LIVE) View.VISIBLE else View.GONE
         screenSystem.visibility = if (tab == Tab.SYSTEM) View.VISIBLE else View.GONE
         screenPerception.visibility = if (tab == Tab.SENSES) View.VISIBLE else View.GONE
+        screenDevices.visibility = if (tab == Tab.DEVICES) View.VISIBLE else View.GONE
+        // Redrawn on arrival, never scanned on arrival: a sweep wakes every device on the network
+        // and should be something Coxy asks for, not something a glance triggers.
+        if (tab == Tab.DEVICES) devicesPanel.refresh()
 
         val on = ContextCompat.getColor(this, R.color.accent)
         val off = ContextCompat.getColor(this, R.color.on_surface_muted)
@@ -487,6 +499,7 @@ class MainActivity : AppCompatActivity() {
         paint(R.id.nav_live_icon, R.id.nav_live_label, R.id.nav_live, tab == Tab.LIVE)
         paint(R.id.nav_system_icon, R.id.nav_system_label, R.id.nav_system, tab == Tab.SYSTEM)
         paint(R.id.nav_senses_icon, R.id.nav_senses_label, R.id.nav_senses, tab == Tab.SENSES)
+        paint(R.id.nav_devices_icon, R.id.nav_devices_label, R.id.nav_devices, tab == Tab.DEVICES)
     }
 
     /**
@@ -936,7 +949,7 @@ class MainActivity : AppCompatActivity() {
                         if (reply.isNotBlank()) {
                             runCatching {
                                 memoryStore.remember("user", userMsg, "typed")
-                                memoryStore.remember("assistant", reply, "typed")
+                                memoryStore.remember("assistant", ActionRunner.withoutActionLines(reply), "typed")
                                 memoryStore.prune()
                             }.onFailure { Log.w(TAG, "failed to persist typed turn", it) }
                             // Phase 6.2: durable-fact extraction runs on its own process-surviving

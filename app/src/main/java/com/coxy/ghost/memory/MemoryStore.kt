@@ -115,6 +115,55 @@ class MemoryStore(context: Context) {
      * Called after every turn and again every 60s from the service, so the common path must stay
      * cheap: it is a single COUNT until the store is actually over cap.
      */
+    /**
+     * Delete turns that were instrumentation rather than conversation, once.
+     *
+     * An afternoon of debugging the television remote left dozens of `[ACTION fail tv_key: ...]`
+     * lines in here, stored as things GHOST had said. Recall served them back as precedent and she
+     * started refusing commands that worked — declining three valid ones in a row on the grounds
+     * that the TV "isn't ready", immediately after proving it was.
+     *
+     * [com.coxy.ghost.action.ActionRunner.withoutActionLines] stops it happening again; this clears
+     * what is already there. Narrow on purpose: only the executor's own bracketed lines and the
+     * refusals they taught, never a turn Coxy typed. Losing a real message to over-eager cleanup
+     * would be a worse fault than the one being fixed.
+     *
+     * @return how many rows went.
+     */
+    /**
+     * Run any one-off memory cleanups that have not run yet.
+     *
+     * Versioned rather than a boolean so a future cleanup can be added without re-running these
+     * over a database that has already had them.
+     *
+     * Note [stripGhostPrefixesFromDb] is called from here. It existed, correct and tested, and was
+     * called by nothing — the third time in this project that the applying half of something was
+     * finished and never wired up.
+     */
+    suspend fun runCleanups(context: Context): Int {
+        val done = com.coxy.ghost.GhostPrefs.memoryCleanupVersion(context)
+        if (done >= CLEANUP_VERSION) return 0
+        var changed = runCatching { stripGhostPrefixesFromDb() }.getOrDefault(0)
+        changed += runCatching { purgeInstrumentation() }.getOrDefault(0)
+        com.coxy.ghost.GhostPrefs.setMemoryCleanupVersion(context, CLEANUP_VERSION)
+        Log.i(TAG, "memory cleanups v$CLEANUP_VERSION: $changed rows touched")
+        return changed
+    }
+
+    suspend fun purgeInstrumentation(): Int {
+        val patterns = listOf(
+            "%[ACTION fail%",
+            "%[ACTION pending%",
+            "%never became ready for commands%",
+            "%hasn't been paired with GHOST%",
+            "%no lookups left this turn%"
+        )
+        var removed = 0
+        for (p in patterns) removed += runCatching { dao.deleteLike(p) }.getOrDefault(0)
+        if (removed > 0) Log.i(TAG, "purged $removed instrumentation turns from memory")
+        return removed
+    }
+
     suspend fun prune() {
         val count = dao.count()
         if (count <= MAX_TURNS) return
@@ -253,6 +302,9 @@ class MemoryStore(context: Context) {
         )
 
         private const val TAG = "MemoryStore"
+
+        /** Bump when a new one-off cleanup is added; see [runCleanups]. */
+        private const val CLEANUP_VERSION = 1
         private const val MAX_TURNS = 1000
         private const val DEFAULT_TOP_K = 5
         private const val MIN_SIM = 0.20f // below this, not similar enough to inject

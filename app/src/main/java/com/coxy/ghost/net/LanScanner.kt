@@ -36,7 +36,12 @@ object LanScanner {
     private const val TTL_MS = 120_000L
 
     sealed interface Result {
-        data class Scanned(val devices: List<LanDevice>, val subnet: String) : Result
+        data class Scanned(
+            val devices: List<LanDevice>,
+            val subnet: String,
+            /** The remembered network this scan belongs to, if the gateway answered. */
+            val network: KnownNetwork? = null
+        ) : Result
         data object NotOnWifi : Result
         data class Failed(val reason: String) : Result
     }
@@ -60,9 +65,36 @@ object LanScanner {
         scannedAt = 0L
     }
 
+    /** The last scan, without running one. Null if nothing has been scanned this process. */
+    fun cached(): Result? = cache
+
+    /**
+     * The remembered network the phone is on, without scanning.
+     *
+     * Deliberately not read off the scan cache. That cache expires after two minutes because a
+     * *scan* goes stale; the network does not, and deriving "you are here now" from it made the
+     * current network stop being marked as current two minutes after arriving on it.
+     *
+     * Confirmed against the live subnet rather than trusted outright, so walking to a different
+     * Wi-Fi does not leave the old network wearing the badge.
+     */
+    suspend fun currentNetwork(context: Context): KnownNetwork? {
+        val ip = wifiIpv4(context) ?: return null
+        val subnet = "${ip.substringBeforeLast('.')}.0/24"
+        val remembered = lastNetwork
+        if (remembered != null && remembered.subnet == subnet) return remembered
+        // Not scanned yet this process: the subnet alone is a weak match — two networks are
+        // routinely 192.168.1.0/24 — so this only stands until a scan settles it properly.
+        return runCatching { NetworkMemory.networks(context) }.getOrDefault(emptyList())
+            .firstOrNull { it.subnet == subnet }
+    }
+
+    @Volatile private var lastNetwork: KnownNetwork? = null
+
     /** Forget learned endpoints too. Only for tests and a genuine "start over". */
     fun forgetEverything() {
         invalidate()
+        lastNetwork = null
         synchronized(knownUrls) { knownUrls.clear() }
         UpnpControl.invalidate()
     }
@@ -111,20 +143,43 @@ object LanScanner {
                     com.coxy.ghost.net.DeviceNames.all(context)
                 )
 
+
                 if (devices.isEmpty()) {
                     Log.w(TAG, "scan found nothing on ${localIp.substringBeforeLast('.')}.0/24")
                 }
-                val result = Result.Scanned(devices, "${localIp.substringBeforeLast('.')}.0/24")
+                // The gateway is x.x.x.1 in practice on every consumer router, and its MAC is what
+                // identifies this network across visits. Falling back to whatever answered at .1 is
+                // better than nothing; a network with no gateway sighting simply is not recorded.
+                val prefix = localIp.substringBeforeLast('.')
+                val gatewayMac = devices.firstOrNull { it.ip == "$prefix.1" }?.mac
+                val now = System.currentTimeMillis()
+                val network = runCatching {
+                    NetworkMemory.currentNetwork(context, gatewayMac, "$prefix.0/24", now)
+                }.getOrNull()
+                if (network != null) {
+                    runCatching { NetworkMemory.record(context, network.id, devices, now) }
+                }
+                // Names come back out of Room afterwards, not from the DataStore blob that was
+                // applied above: recording first means a device seen for the first time already
+                // has a row, and reading second means a rename made on the Devices screen reaches
+                // the matcher without waiting for anything.
+                val named = runCatching {
+                    NetworkMemory.applyKnown(context, network?.id, devices)
+                }.getOrDefault(devices)
+
+                lastNetwork = network
+                val result = Result.Scanned(named, "$prefix.0/24", network)
                 cache = result
                 scannedAt = SystemClock.elapsedRealtime()
                 Log.i(
                     TAG,
-                    "scan: ${devices.size} devices (${devices.count { it.isIdentified }} identified)"
+                    "scan: ${named.size} devices (${named.count { it.isIdentified }} identified)" +
+                        (network?.let { " on ${it.label}" } ?: " — network unidentified")
                 )
                 // The identified ones logged individually: they are the only ones a request can
                 // land on, and when control misbehaves this line is the difference between
                 // "the TV ignored her" and "there was never a TV at that address".
-                devices.filter { it.isIdentified }.forEach {
+                named.filter { it.isIdentified }.forEach {
                     Log.i(TAG, "  ${it.ip} ${it.kind ?: "?"} \"${it.bestName ?: "?"}\" " +
                         "svc=${it.services} urls=${it.descriptionUrls}")
                 }

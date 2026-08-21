@@ -68,6 +68,14 @@ interface MemoryDao {
 
     @Query("DELETE FROM memory WHERE id = :id")
     suspend fun delete(id: Long)
+
+    /**
+     * Delete every row whose content matches [pattern] (a SQL LIKE).
+     *
+     * Used by [MemoryStore.purgeInstrumentation] to clear turns that were never really said.
+     */
+    @Query("DELETE FROM memory WHERE content LIKE :pattern")
+    suspend fun deleteLike(pattern: String): Int
 }
 
 /** Scoring projection for [MemoryDao.embeddings] — the vector without the row it belongs to. */

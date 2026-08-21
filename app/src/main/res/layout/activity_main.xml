@@ -129,6 +129,7 @@
         <include layout="@layout/content_live" />
         <include layout="@layout/content_system" />
         <include layout="@layout/content_perception" />
+        <include layout="@layout/content_devices" />
     </FrameLayout>
 
     <!-- Bottom nav: one floating glass pill, no rule above it and no filled footer behind it. -->
@@ -150,7 +151,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:paddingHorizontal="20dp"
+            android:paddingHorizontal="13dp"
             android:paddingVertical="9dp"
             android:background="@drawable/bg_nav_active"
             android:clickable="true"
@@ -180,7 +181,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:paddingHorizontal="20dp"
+            android:paddingHorizontal="13dp"
             android:paddingVertical="9dp"
             android:clickable="true"
             android:focusable="true">
@@ -208,7 +209,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:paddingHorizontal="20dp"
+            android:paddingHorizontal="13dp"
             android:paddingVertical="9dp"
             android:clickable="true"
             android:focusable="true">
@@ -231,12 +232,40 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/nav_devices"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingHorizontal="13dp"
+            android:paddingVertical="9dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:id="@+id/nav_devices_icon"
+                android:layout_width="21dp"
+                android:layout_height="21dp"
+                android:src="@drawable/ic_devices"
+                android:contentDescription="@null"
+                app:tint="@color/on_surface_muted" />
+
+            <TextView
+                android:id="@+id/nav_devices_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:text="@string/ghost_nav_devices"
+                style="@style/TextAppearance.Ghost.NavLabel" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/nav_system"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:paddingHorizontal="20dp"
+            android:paddingHorizontal="13dp"
             android:paddingVertical="9dp"
             android:clickable="true"
             android:focusable="true">

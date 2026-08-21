@@ -44,7 +44,11 @@ class LanExecutor(private val context: Context) {
             is LanScanner.Result.NotOnWifi ->
                 return fail(action, "not on Wi-Fi, so there's no network to reach")
             is LanScanner.Result.Failed -> return fail(action, scan.reason)
-            is LanScanner.Result.Scanned -> scan.devices
+            // Everything remembered on this network is a candidate, not just what answered this
+            // scan. A device that is off must be reachable *by name* so the failure can say it is
+            // off, rather than looking exactly like a name that was never right.
+            is LanScanner.Result.Scanned ->
+                NetworkMemory.withRemembered(context, scan.network?.id, scan.devices)
         }
 
         val device = when (val r = DeviceMatcher.resolve(target, devices)) {
@@ -59,6 +63,10 @@ class LanExecutor(private val context: Context) {
                 else " (I can see: " + r.near.joinToString("; ") { DeviceMatcher.label(it) } + ")"
                 return fail(action, "nothing on the network called '$target'$hint")
             }
+        }
+
+        if (device.isStale && action.id != "name_device") {
+            Log.i(TAG, "${device.ip} is remembered, not answering — trying anyway")
         }
 
         return runCatching {
@@ -78,7 +86,11 @@ class LanExecutor(private val context: Context) {
             onSuccess = { ActionResult(action.id, true, it) },
             onFailure = {
                 Log.w(TAG, "${action.id} failed", it)
-                fail(action, it.message ?: "network error")
+                // When a remembered device fails, say when it was last around. "It hasn't answered
+                // since yesterday" is an answer he can act on; "network error" is not.
+                val age = device.lastSeenMs?.let { ms -> " — it hasn't answered since ${ago(ms)}" }
+                    .orEmpty()
+                fail(action, (it.message ?: "network error") + age)
             }
         )
     }
@@ -230,6 +242,11 @@ class LanExecutor(private val context: Context) {
             com.coxy.ghost.net.atv.AtvPairingSession.done()
             session.close()
             com.coxy.ghost.net.atv.AtvPaired.remember(context, host)
+            // Also on the device row, so the Devices screen can say "remote" rather than
+            // "pairable" and GHOST can answer "can you turn that off" without a TLS round trip.
+            (LanScanner.cached() as? LanScanner.Result.Scanned)?.network?.id?.let { networkId ->
+                runCatching { NetworkMemory.markPairedByIp(context, networkId, host) }
+            }
             ActionResult(action.id, true, "paired with $host — the remote works now")
         } catch (e: Exception) {
             // A wrong code is worth another try on the same session; a dead socket is not, and
@@ -260,6 +277,11 @@ class LanExecutor(private val context: Context) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) throw IllegalArgumentException("what should I call it?")
         val key = DeviceNames.set(context, device, trimmed)
+        // Room is where names live now; DeviceNames above is kept only so a name given while
+        // offline still migrates across on the next scan.
+        (LanScanner.cached() as? LanScanner.Result.Scanned)?.network?.id?.let { networkId ->
+            runCatching { NetworkMemory.nameByIp(context, networkId, device.ip, trimmed) }
+        }
         // Invalidated so the very next command sees the new name; without this the cached scan
         // would keep the old label for up to two minutes and "turn up the office TV" would still
         // come back as a three-way question immediately after naming it.
@@ -279,6 +301,18 @@ class LanExecutor(private val context: Context) {
         // Deliberately not "woke it up": Wake-on-LAN has no acknowledgement, so this genuinely
         // only knows the packet left.
         return "${nameOf(device)}: wake packet sent — it has no way to confirm it woke"
+    }
+
+    /** Rough, spoken-sounding age. Precision here would be false comfort. */
+    internal fun ago(ms: Long): String {
+        val mins = ((System.currentTimeMillis() - ms) / 60_000).coerceAtLeast(0)
+        return when {
+            mins < 2 -> "a moment ago"
+            mins < 60 -> "$mins minutes ago"
+            mins < 60 * 24 -> "${mins / 60} hours ago"
+            mins < 60 * 24 * 2 -> "yesterday"
+            else -> "${mins / (60 * 24)} days ago"
+        }
     }
 
     private fun nameOf(device: LanDevice): String =

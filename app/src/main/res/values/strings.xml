@@ -85,4 +85,11 @@
     <string name="ghost_reading">Reading the page…</string>
     <string name="ghost_scanning">Looking at the network…</string>
     <string name="ghost_web_search">Allow web access</string>
+    <string name="ghost_devices_title">Devices</string>
+    <string name="ghost_devices_subtitle">Every network she has been on, and what was on it.</string>
+    <string name="ghost_devices_scan">Scan</string>
+    <string name="ghost_devices_scanning">Scanning…</string>
+    <string name="ghost_nav_devices">Devices</string>
+    <string name="ghost_devices_empty">Nothing remembered yet. Join a Wi-Fi network and scan.</string>
+    <string name="ghost_devices_here">on this network now</string>
 </resources>

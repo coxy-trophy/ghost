@@ -714,7 +714,7 @@ class GhostService : LifecycleService() {
 
             // After the reply completes (engine idle): persist the turn pair for future recall.
             memoryStore.remember("user", cmd, "voice")
-            memoryStore.remember("assistant", finalReply, "voice")
+            memoryStore.remember("assistant", ActionRunner.withoutActionLines(finalReply), "voice")
             memoryStore.prune()
             // Phase 6.2: extract durable facts from the voice exchange.
             factExtractor.extract(cmd, finalReply, "voice")

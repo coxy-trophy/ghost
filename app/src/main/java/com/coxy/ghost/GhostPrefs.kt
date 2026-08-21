@@ -56,6 +56,14 @@ object GhostPrefs {
     private val KEY_PAIRED_TVS = stringPreferencesKey("paired_tvs")
 
     /**
+     * Which one-off memory cleanups have already run.
+     *
+     * A number rather than a flag so a later cleanup can be added without re-running the earlier
+     * ones over a database that no longer needs them.
+     */
+    private val KEY_MEMORY_CLEANUP = androidx.datastore.preferences.core.intPreferencesKey("memory_cleanup_version")
+
+    /**
      * The "leave the mic on" latch for Live mode.
      *
      * Deliberately a **new key**, not a new default on `mic_enabled`. That key meant "ambient
@@ -143,6 +151,13 @@ object GhostPrefs {
 
     suspend fun setPairedTvs(ctx: Context, json: String) {
         ctx.ghostDataStore.edit { p -> p[KEY_PAIRED_TVS] = json }
+    }
+
+    suspend fun memoryCleanupVersion(ctx: Context): Int =
+        ctx.ghostDataStore.data.map { it[KEY_MEMORY_CLEANUP] ?: 0 }.first()
+
+    suspend fun setMemoryCleanupVersion(ctx: Context, version: Int) {
+        ctx.ghostDataStore.edit { p -> p[KEY_MEMORY_CLEANUP] = version }
     }
 
     suspend fun getModelPath(ctx: Context): String? = modelPathFlow(ctx).first()

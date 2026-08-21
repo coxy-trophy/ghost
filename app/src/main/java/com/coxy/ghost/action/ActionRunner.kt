@@ -10,6 +10,26 @@ package com.coxy.ghost.action
  */
 object ActionRunner {
 
+    /** An `[ACTION ...]` result line appended to a reply by [run]. */
+    private val RESULT_LINE = Regex("^\\s*\\[ACTION\\b.*$", RegexOption.MULTILINE)
+
+    /**
+     * A reply with the executor's own bookkeeping taken back out, for storing in memory.
+     *
+     * These lines are instrumentation appended for Coxy to read, not something GHOST said, and
+     * remembering them as her words does real damage: a run of `[ACTION fail tv_key: ...]` from an
+     * afternoon of debugging came back through recall as precedent, and she began refusing valid
+     * commands on the grounds that they had never worked. Her prose already says what she meant to
+     * do; the outcome lives in the world rather than in the transcript.
+     *
+     * The same reasoning the sensor blocks already get: known, not narrated.
+     */
+    fun withoutActionLines(reply: String): String =
+        reply.replace(RESULT_LINE, "").lines()
+            .joinToString("\n") { it.trimEnd() }
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+
     suspend fun run(executor: ActionExecutor, reply: String): String {
         val parsed = ActionParser.extract(reply)
         if (parsed.actions.isEmpty() && parsed.errors.isEmpty()) return reply
