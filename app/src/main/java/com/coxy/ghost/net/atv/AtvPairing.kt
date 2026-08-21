@@ -116,9 +116,17 @@ class AtvPairing(private val host: String) {
      */
     suspend fun finish(code: String) = withContext(Dispatchers.IO) {
         val s = socket ?: throw IllegalStateException("pairing was not started")
-        val clean = code.trim().replace(" ", "").uppercase()
-        require(clean.length == 6 && clean.all { it.isDigit() || it in 'A'..'F' }) {
-            "'$code' is not a six-character code — it should look like 1A2B3C"
+        val clean = normalise(code)
+        val bad = clean.filterNot { it.isDigit() || it in 'A'..'F' }
+        require(clean.length == 6 && bad.isEmpty()) {
+            // Naming the actual rule, not an example. The example used to be "it should look like
+            // 1A2B3C", and GHOST read a pattern into it that does not exist — she told Coxy his
+            // code was wrong because it had no digits in the places hers did.
+            val why = when {
+                bad.isNotEmpty() -> "'$bad' can't appear in it"
+                else -> "it has ${clean.length} characters"
+            }
+            "'${code.trim()}' isn't a pairing code — six characters, digits and A to F only, and $why"
         }
 
         val (clientMod, clientExp) = AtvIdentity.clientRsa()
@@ -134,9 +142,15 @@ class AtvPairing(private val host: String) {
             update(nonce)
         }.digest()
 
+        // The first byte of the code is a checksum over this hash, so a misread character can be
+        // caught here rather than by sending a wrong secret. It is a warning and not a refusal:
+        // this check is only as good as the hash, and if the hash were subtly wrong a *correct*
+        // code would be rejected for ever with no way through. The television is the authority on
+        // whether the secret is right, so a mismatch still gets sent and still gets its real answer.
         val expected = clean.substring(0, 2).toInt(16)
-        if ((digest[0].toInt() and 0xFF) != expected) {
-            throw IOException("that code doesn't match what the television is showing")
+        val actual = digest[0].toInt() and 0xFF
+        if (actual != expected) {
+            Log.w(TAG, "code checksum mismatch: expected $expected, computed $actual — sending anyway")
         }
 
         send {
@@ -144,9 +158,28 @@ class AtvPairing(private val host: String) {
             varint(F_STATUS, STATUS_OK)
             message(F_SECRET) { bytes(1, digest) }
         }
-        expect(listOf(F_SECRET_ACK), "the television rejected the code")
+        expect(listOf(F_SECRET_ACK), "the television did not accept that code")
         Log.i(TAG, "paired with $host")
     }
+
+    /**
+     * Tidy a code as read off a screen.
+     *
+     * A television renders `0` in a font where it is hard to tell from `O`, and someone reading it
+     * out will write what they see — which is how a perfectly good code got refused as invalid.
+     * The substitutions are safe in one direction only, which is why they are safe at all: `O`,
+     * `I` and `L` are not hexadecimal digits, so a code containing one is certainly a misread and
+     * there is only one thing it can have been.
+     */
+    internal fun normalise(code: String): String =
+        code.trim().filterNot { it.isWhitespace() || it == '-' }.uppercase()
+            .map {
+                when (it) {
+                    'O' -> '0'
+                    'I', 'L' -> '1'
+                    else -> it
+                }
+            }.joinToString("")
 
     fun close() {
         runCatching { socket?.close() }

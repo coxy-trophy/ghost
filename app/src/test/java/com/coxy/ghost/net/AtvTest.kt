@@ -117,3 +117,43 @@ class AtvTest {
         assertTrue(!AtvKeys.isToggle(AtvKeys.VOLUME_UP))
     }
 }
+
+/**
+ * Reading a code off a television screen.
+ *
+ * Every case here is one a real pairing attempt hit or would have hit: the first live code was
+ * F9EFD0 and was read out as F9EFDO, and the validator threw it away before the television ever
+ * saw it.
+ */
+class AtvCodeTest {
+
+    private val pairing = com.coxy.ghost.net.atv.AtvPairing("192.168.100.24")
+
+    @Test
+    fun `a letter O is a zero, because a zero is not a letter O`() {
+        // The exact code that failed live.
+        assertEquals("F9EFD0", pairing.normalise("F9EFDO"))
+    }
+
+    @Test
+    fun `I and L are ones for the same reason`() {
+        assertEquals("1A2B3C", pairing.normalise("IA2B3C"))
+        assertEquals("1A2B3C", pairing.normalise("LA2B3C"))
+    }
+
+    @Test
+    fun `the substitutions are only safe one way, and only these`() {
+        // B, C, D, E, F are hexadecimal and must never be rewritten as something else.
+        assertEquals("BCDEF0", pairing.normalise("bcdefo"))
+    }
+
+    @Test
+    fun `case, spaces and dashes are not part of a code`() {
+        assertEquals("F9EFD0", pairing.normalise(" f9 ef-d0 "))
+    }
+
+    @Test
+    fun `a code already correct is left alone`() {
+        assertEquals("A1B2C3", pairing.normalise("A1B2C3"))
+    }
+}
