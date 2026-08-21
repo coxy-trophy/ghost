@@ -5,26 +5,38 @@ import com.coxy.ghost.net.atv.Protobuf.field
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.SocketTimeoutException
 import javax.net.ssl.SSLSocket
 
 /**
  * A remote-control session with a paired television.
  *
- * Opens, does the short configure/set-active dance the TV expects, sends the keys, and closes. Not
- * held open between commands on purpose: the protocol requires answering the TV's periodic pings or
- * being dropped, and a background daemon holding a TLS socket to a television all day to save half
- * a second on an occasional keypress is a poor trade on a phone.
+ * **The television drives this conversation, not us.** The first version of this read a fixed
+ * sequence — wait for configure, reply, announce active, wait for start — and timed out every time,
+ * because the TV also sends its own `remote_set_active` and waits for that to be answered before it
+ * will say `remote_start`. A script that talks past it deadlocks against a device that is patiently
+ * waiting its turn.
  *
- * That does mean the TV's own pings can arrive mid-session — it starts sending them as soon as the
- * session is active — so the read loop answers anything that turns up rather than assuming the next
- * message is the one it asked for.
+ * So this is an event loop: read whatever arrives, answer it, and send the keys once the TV says it
+ * is started. Every message is logged by field number, because a television that accepts the
+ * connection and then goes quiet gives nothing else to go on.
+ *
+ * Not held open between commands. The protocol needs its pings answered or it drops the session,
+ * and a daemon keeping a TLS socket to a television all day to save half a second on an occasional
+ * keypress is a poor trade on a phone.
  */
 object AtvRemote {
 
     private const val TAG = "AtvRemote"
     const val PORT = 6466
 
-    private const val TIMEOUT_MS = 10_000
+    /** Per-read wait. Short, so a silent TV is nudged rather than waited out. */
+    private const val READ_TIMEOUT_MS = 3_000
+
+    /** Whole-session ceiling, across as many messages as it takes. */
+    private const val SESSION_MS = 20_000L
 
     // RemoteMessage field numbers.
     private const val F_CONFIGURE = 1
@@ -39,54 +51,84 @@ object AtvRemote {
     private const val DIRECTION_SHORT = 3
 
     /**
-     * The magic number every implementation of this protocol sends as `active`.
+     * The value every implementation of this protocol sends as `active`.
      *
-     * It is not documented anywhere; it is what the Google TV remote app sends, and televisions
-     * that receive anything else have been observed to accept the session and then ignore keys.
+     * Undocumented; it is what the Google TV remote app sends. Televisions given something else
+     * have been seen to accept the session and then ignore every key.
      */
     private const val ACTIVE = 622
 
-    /**
-     * Send one or more key codes to [host].
-     *
-     * @throws IOException with a readable reason if the television is unreachable or not paired.
-     */
     suspend fun sendKeys(host: String, keyCodes: List<Int>): Unit = withContext(Dispatchers.IO) {
         var socket: SSLSocket? = null
         try {
-            socket = AtvIdentity.connect(host, PORT, TIMEOUT_MS)
+            socket = AtvIdentity.connect(host, PORT, READ_TIMEOUT_MS)
+            socket.soTimeout = READ_TIMEOUT_MS
             val out = socket.outputStream
             val ins = socket.inputStream
 
-            fun send(build: Protobuf.Writer.() -> Unit) {
-                out.write(Protobuf.frame(Protobuf.Writer().apply(build).build()))
-                out.flush()
-            }
+            var sentConfigure = false
+            var sentActive = false
+            var started = false
+            val deadline = System.currentTimeMillis() + SESSION_MS
 
-            // The TV opens with its own configure; ours answers it.
-            readUntil(ins, ::identity, F_CONFIGURE, out)
-            send {
-                message(F_CONFIGURE) {
-                    varint(1, 1)                    // code1
-                    message(2) {                    // device_info
-                        string(1, "GHOST")          // model
-                        string(2, "coxy")           // vendor
-                        varint(3, 1)                // unknown, always 1
-                        string(4, "1")              // unknown
-                        string(5, "com.coxy.ghost") // package_name
-                        string(6, "1.0")            // app_version
+            while (System.currentTimeMillis() < deadline && !started) {
+                val body = try {
+                    readFramed(ins)
+                } catch (_: SocketTimeoutException) {
+                    // The TV is waiting for us. Opening with our own configure is harmless if it
+                    // was simply slow, and is the thing that unsticks it if it expects us first.
+                    if (!sentConfigure) {
+                        Log.i(TAG, "$host quiet — sending configure unprompted")
+                        sendConfigure(out); sentConfigure = true
+                    } else if (!sentActive) {
+                        Log.i(TAG, "$host quiet after configure — announcing active")
+                        sendSetActive(out); sentActive = true
                     }
+                    continue
                 }
+
+                val fields = Protobuf.parse(body)
+                Log.i(TAG, "$host -> fields ${fields.map { it.number }}")
+
+                if (fields.field(F_ERROR) != null) {
+                    throw IOException("the television reported an error")
+                }
+                fields.field(F_PING_REQUEST)?.let { ping ->
+                    val value = Protobuf.parse(ping.bytes ?: ByteArray(0)).field(1)?.varint ?: 0
+                    send(out) { message(F_PING_RESPONSE) { varint(1, value) } }
+                }
+                if (fields.field(F_CONFIGURE) != null && !sentConfigure) {
+                    sendConfigure(out); sentConfigure = true
+                }
+                // The message the fixed sequence never answered, and the reason it hung.
+                if (fields.field(F_SET_ACTIVE) != null && !sentActive) {
+                    sendSetActive(out); sentActive = true
+                }
+                if (fields.field(F_START) != null) {
+                    started = true
+                }
+                // This television never sends remote_start. After the two-message handshake it
+                // simply begins talking — fields 40, 50 and 20 here, then pings every five seconds
+                // — and a session it pings is a session it considers live. Waiting for a start
+                // that was never coming meant timing out on a connection that was working
+                // perfectly, answering its pings the whole time.
+                if (sentConfigure && sentActive &&
+                    fields.any { it.number != F_CONFIGURE && it.number != F_SET_ACTIVE }
+                ) {
+                    started = true
+                }
+                // Nothing is volunteered here on purpose. An earlier version announced active as
+                // soon as configure had been sent, which spent the reply before the television
+                // asked — so when its own set_active arrived the guard below had already been set
+                // and it went unanswered, and the TV waited for a turn that never came. The
+                // television gets to ask; the read-timeout branch above covers a firmware that
+                // does not.
             }
 
-            send { message(F_SET_ACTIVE) { varint(1, ACTIVE) } }
-            // The TV replies with remote_start once it is willing to take keys. Sending before
-            // that lands the keypress in a session the TV has not activated, and it is discarded
-            // with no error at all.
-            readUntil(ins, ::identity, F_START, out)
+            if (!started) throw IOException("the television never became ready for commands")
 
             for (code in keyCodes) {
-                send {
+                send(out) {
                     message(F_KEY_INJECT) {
                         varint(1, code)             // key_code
                         varint(2, DIRECTION_SHORT)  // direction
@@ -94,55 +136,57 @@ object AtvRemote {
                 }
                 Log.i(TAG, "sent keycode $code to $host")
             }
-            // Give the TV a moment to act before the socket closes under it.
-            Thread.sleep(300)
+
+            // Stay a moment so the TV acts before the socket closes under it, answering anything
+            // it says in the meantime rather than leaving a ping unanswered on the way out.
+            val settle = System.currentTimeMillis() + 1_000
+            while (System.currentTimeMillis() < settle) {
+                val body = try { readFramed(ins) } catch (_: SocketTimeoutException) { break }
+                val fields = Protobuf.parse(body)
+                fields.field(F_PING_REQUEST)?.let { ping ->
+                    val value = Protobuf.parse(ping.bytes ?: ByteArray(0)).field(1)?.varint ?: 0
+                    send(out) { message(F_PING_RESPONSE) { varint(1, value) } }
+                }
+            }
         } catch (e: javax.net.ssl.SSLException) {
-            // The TV rejecting the certificate is what "not paired" looks like from here.
+            // The TV refusing the certificate is what "not paired" looks like from here.
+            Log.w(TAG, "TLS refused by $host", e)
             throw IOException("that television hasn't been paired with GHOST yet")
         } finally {
             runCatching { socket?.close() }
         }
     }
 
-    private fun identity(x: ByteArray) = x
-
-    /**
-     * Read until a message carrying [wanted] arrives, answering pings on the way.
-     *
-     * A television starts pinging as soon as the session is up, and an unanswered ping closes the
-     * connection — so the message being waited for is frequently not the next one to arrive.
-     */
-    private fun readUntil(
-        ins: java.io.InputStream,
-        transform: (ByteArray) -> ByteArray,
-        wanted: Int,
-        out: java.io.OutputStream
-    ) {
-        repeat(12) {
-            val body = transform(readFramed(ins))
-            val fields = Protobuf.parse(body)
-
-            fields.field(F_ERROR)?.let {
-                throw IOException("the television reported an error")
+    private fun sendConfigure(out: OutputStream) = send(out) {
+        message(F_CONFIGURE) {
+            // code1 is the same 622 as set_active, not 1. With 1 the television accepted the
+            // connection, sent its configure and its set_active, and then went silent for ever —
+            // no error, no close, just a device that had decided we were not a remote.
+            varint(1, ACTIVE)               // code1
+            message(2) {                    // device_info
+                string(1, "GHOST")          // model
+                string(2, "coxy")           // vendor
+                varint(3, 1)                // unknown, always 1
+                string(4, "1")              // unknown
+                string(5, "com.coxy.ghost") // package_name
+                string(6, "1.0")            // app_version
             }
-            fields.field(F_PING_REQUEST)?.let { ping ->
-                val value = Protobuf.parse(ping.bytes ?: ByteArray(0)).field(1)?.varint ?: 0
-                out.write(
-                    Protobuf.frame(
-                        Protobuf.Writer()
-                            .message(F_PING_RESPONSE) { varint(1, value) }
-                            .build()
-                    )
-                )
-                out.flush()
-                return@repeat
-            }
-            if (fields.field(wanted) != null) return
         }
-        throw IOException("the television never became ready for commands")
     }
 
-    private fun readFramed(ins: java.io.InputStream): ByteArray {
+    private fun sendSetActive(out: OutputStream) =
+        send(out) { message(F_SET_ACTIVE) { varint(1, ACTIVE) } }
+
+    private fun send(out: OutputStream, build: Protobuf.Writer.() -> Unit) {
+        val body = Protobuf.Writer().apply(build).build()
+        // Logged alongside what arrives, so a silent television can be read as a conversation
+        // rather than guessed at.
+        Log.i(TAG, "<- fields ${Protobuf.parse(body).map { it.number }} (${body.size}b)")
+        out.write(Protobuf.frame(body))
+        out.flush()
+    }
+
+    private fun readFramed(ins: InputStream): ByteArray {
         var length = 0L
         var shift = 0
         while (true) {
