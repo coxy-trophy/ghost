@@ -33,10 +33,10 @@ object AtvKeys {
     /**
      * The other two ways a device can be asked to go dark.
      *
-     * POWER is what a remote's power button sends and what should work. These exist because
-     * "should" is doing real work in that sentence: some Android TV builds route standby through
-     * TV_POWER, and others only honour SLEEP, and there is no way to ask a television which it is
-     * — the protocol acknowledges no key.
+     * POWER is what a remote's power button sends, and on the television this was built against it
+     * is what works — once the session has settled; see [AtvRemote]. These are kept for the sets
+     * where it is not: some Android TV builds route standby through TV_POWER, others only honour
+     * SLEEP, and the protocol acknowledges no key, so there is no way to ask which.
      */
     const val TV_POWER = 177
     const val SLEEP = 223

@@ -132,6 +132,12 @@ object AtvRemote {
             // of it is accepted and discarded, which looks from here exactly like a key that
             // worked. Draining until the television either goes quiet or starts pinging means the
             // keypress lands on a session that has finished setting itself up.
+            //
+            // This is the line that made power work. Confirmed on RMX3760 against the TV at
+            // 192.168.100.24: KEYCODE_POWER sent 1ms into the burst did nothing, three times over;
+            // the same key on a drained session turned the set off. The keycode was never wrong,
+            // which is worth knowing because the obvious next move when a power key does nothing
+            // is to go hunting for a different power key, and that hunt leads nowhere.
             var quiet = false
             val settleBy = System.currentTimeMillis() + 8_000
             while (!quiet && System.currentTimeMillis() < settleBy) {
