@@ -107,7 +107,8 @@ class MainActivity : AppCompatActivity() {
     /** Chat's resting state: the orb and the greeting, hidden once there is a transcript. */
     private lateinit var chatHero: View
     /** Live's mic band. Fed the same audio level the [CONTEXT] block reports. */
-    private lateinit var waveform: com.coxy.ghost.ui.WaveformView
+    /** Live's own orb. Chat's is inside the transcript header and cannot be shared. */
+    private lateinit var liveOrb: com.coxy.ghost.ui.OrbView
     private lateinit var liveState: TextView
     private lateinit var liveHeard: TextView
     private lateinit var liveReply: TextView
@@ -211,12 +212,14 @@ class MainActivity : AppCompatActivity() {
         sensorChips = findViewById(R.id.sensor_chips)
         sensorCard = findViewById(R.id.sensor_card)
         orb = chatHero.findViewById(R.id.orb)
-        waveform = findViewById(R.id.waveform)
+        liveOrb = findViewById(R.id.live_orb)
         btnTopBrain = findViewById(R.id.btn_top_brain)
         btnCaptureChat = findViewById(R.id.btn_capture_chat)
-        // The band samples the mic itself each frame. It reads flat unless the mic is genuinely
-        // open, so a dead mic looks dead rather than idling at a convincing height.
-        waveform.levelProvider = {
+        // The orb samples the mic itself each frame, which is the job the waveform ribbon above it
+        // used to do. It reads flat unless the mic is genuinely open, so a dead mic looks dead
+        // rather than idling at a convincing height — the reason it is fed from MicListener's own
+        // loudness and not from ContextState.audioLevelDb, which is never written.
+        liveOrb.levelProvider = {
             if (MicListener.mode == MicListener.MicMode.OFF) 0f
             else ((MicListener.lastRms - MicListener.RMS_FLOOR) /
                 (MicListener.RMS_CEIL - MicListener.RMS_FLOOR))
@@ -562,7 +565,10 @@ class MainActivity : AppCompatActivity() {
             cs.micState == MicState.SILENT -> com.coxy.ghost.ui.OrbView.OrbState.IDLE
             else -> com.coxy.ghost.ui.OrbView.OrbState.IDLE
         }
+        // Both orbs, always. They are two instances of one presence, and a Live orb still on IDLE
+        // while Chat's is THINKING would be GHOST disagreeing with herself about what she is doing.
         orb.setOrbState(state)
+        liveOrb.setOrbState(state)
 
         // Which brain answered, carried by the orb's temperature and the top-bar disc as well as
         // by the chip. It is the single most consequential thing about a reply and the easiest to
@@ -570,6 +576,7 @@ class MainActivity : AppCompatActivity() {
         val brainNow = com.coxy.ghost.cloud.CloudRouter.lastBrain
         val onCloud = brainNow == com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD
         orb.setCloudBrain(onCloud)
+        liveOrb.setCloudBrain(onCloud)
         // UNKNOWN means no query has been answered yet, which is not the same as "local". The orb
         // has to pick a temperature and rests cool, but the disc must not claim a brain it has no
         // evidence for — it stays unlit until something has actually answered.

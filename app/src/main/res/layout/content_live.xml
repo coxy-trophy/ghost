@@ -1,11 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Live mode. The orb belongs to Chat; here GHOST is not an object across the room but a light you
-  are standing in, so the screen is a bloom rising off the bottom edge with the hold-to-speak
-  button at its hottest point.
+  Live mode: talking to her.
 
-  The band across the top is the mic itself — see WaveformView. Between them sits what she actually
-  heard, which is the one thing worth reading at arm's length while you are talking.
+  In Chat the orb is an object across the room that the transcript scrolls past. Here it is the
+  screen — you are not reading a conversation, you are in one, and the only things that matter are
+  whether she is listening, what she heard, and what she said back.
+
+  Three things used to compete to be her presence here: a bloom rising off the bottom edge, a
+  waveform ribbon across the top, and a ring of buttons. None of them won, and the screen read as
+  busy in a mode that should feel like standing still. The bloom and the ribbon are gone; the orb
+  carries both jobs now — it is the light source, and it swells with your voice, so the meter is
+  the presence rather than a second thing beside it.
+
+  Everything is one vertical stack. The old layout positioned four blocks by hardcoded margins from
+  opposite edges (206dp from the top, 216dp then 104dp from the bottom), which meant nothing had a
+  relationship to anything else and any change to one moved the others by hand.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -14,28 +23,23 @@
     android:layout_height="match_parent"
     android:visibility="gone">
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="440dp"
-        android:layout_gravity="bottom"
-        android:background="@drawable/bg_floor_bloom" />
-
-    <com.coxy.ghost.ui.WaveformView
-        android:id="@+id/waveform"
-        android:layout_width="match_parent"
-        android:layout_height="170dp"
-        android:layout_gravity="top"
-        android:layout_marginTop="18dp" />
-
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:layout_marginTop="206dp"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:gravity="center_horizontal"
-        android:paddingHorizontal="32dp">
+        android:gravity="center_horizontal">
 
+        <!--
+          Fixed, not weighted. Given the remaining space the orb takes all of it and drives the
+          text to the floor — the same fault that put the Chat greeting on the bottom edge.
+        -->
+        <com.coxy.ghost.ui.OrbView
+            android:id="@+id/live_orb"
+            android:layout_width="match_parent"
+            android:layout_height="300dp"
+            android:layout_marginTop="4dp" />
+
+        <!-- Her state, tight under her, like a nameplate rather than a status bar. -->
         <TextView
             android:id="@+id/live_state"
             android:layout_width="wrap_content"
@@ -43,104 +47,121 @@
             android:text="@string/ghost_live_idle"
             style="@style/TextAppearance.Ghost.Label"
             android:textColor="@color/accent_soft"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
 
-        <!-- What GHOST heard. The largest text in Live, because it is the one thing you check
-             mid-sentence to know whether you were understood. -->
+        <!--
+          What she heard. The largest thing on the screen, because it is the one you check
+          mid-sentence to know whether you were understood.
+        -->
         <TextView
             android:id="@+id/live_heard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
+            android:layout_marginTop="20dp"
+            android:paddingHorizontal="34dp"
             android:gravity="center"
             android:maxLines="3"
             android:ellipsize="end"
             android:textColor="@color/on_surface"
-            android:textSize="21sp"
+            android:textSize="22sp"
             android:fontFamily="sans-serif-medium"
+            android:lineSpacingExtra="2dp"
             android:letterSpacing="-0.02" />
-    </LinearLayout>
 
-    <TextView
-        android:id="@+id/live_reply"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginBottom="216dp"
-        android:paddingHorizontal="30dp"
-        android:gravity="center"
-        android:maxLines="4"
-        android:ellipsize="end"
-        style="@style/TextAppearance.Ghost.Body"
-        android:textColor="@color/on_surface" />
+        <!--
+          What she said. Deliberately quieter than what she heard: in Live you are listening to
+          this, not reading it, and it only needs to confirm that she answered.
+        -->
+        <TextView
+            android:id="@+id/live_reply"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:paddingHorizontal="34dp"
+            android:gravity="center"
+            android:maxLines="4"
+            android:ellipsize="end"
+            android:textColor="@color/on_surface_variant"
+            android:textSize="15sp"
+            android:lineSpacingExtra="3dp" />
 
-    <!--
-      Push to talk. Largest target on the screen and the only saturated one, because with nothing
-      listening ambiently this is the whole way in.
-    -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="104dp"
-        android:orientation="vertical"
-        android:gravity="center_horizontal">
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
-        <FrameLayout
-            android:layout_width="128dp"
-            android:layout_height="128dp"
-            android:background="@drawable/bg_ptt_rings">
+        <!--
+          One row, not three positions. Talk is the only saturated thing on the screen and sits in
+          the middle where a thumb lands; the two that end the moment are pushed to the edges, far
+          enough that neither is in the path of reaching for it.
+        -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="26dp">
 
             <ImageButton
-                android:id="@+id/live_ptt"
-                android:layout_width="88dp"
-                android:layout_height="88dp"
-                android:layout_gravity="center"
-                android:background="@drawable/bg_ptt"
-                android:contentDescription="@string/ghost_ptt_hold"
-                android:src="@drawable/ic_mic"
+                android:id="@+id/live_mute"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_live_controls"
+                android:contentDescription="@string/ghost_live_latch"
+                android:src="@drawable/ic_mic_off"
                 android:scaleType="centerInside"
-                android:padding="24dp"
-                app:tint="@color/white" />
-        </FrameLayout>
+                android:padding="15dp"
+                app:tint="@color/on_surface_variant" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <FrameLayout
+                android:layout_width="112dp"
+                android:layout_height="112dp"
+                android:background="@drawable/bg_ptt_rings">
+
+                <ImageButton
+                    android:id="@+id/live_ptt"
+                    android:layout_width="84dp"
+                    android:layout_height="84dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_ptt"
+                    android:contentDescription="@string/ghost_ptt_hold"
+                    android:src="@drawable/ic_mic"
+                    android:scaleType="centerInside"
+                    android:padding="23dp"
+                    app:tint="@color/white" />
+            </FrameLayout>
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/live_exit"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_live_controls"
+                android:contentDescription="@string/ghost_live_exit"
+                android:src="@drawable/ic_close"
+                android:scaleType="centerInside"
+                android:padding="15dp"
+                app:tint="@color/on_surface_variant" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/live_ptt_hint"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="10dp"
             android:text="@string/ghost_ptt_hold"
             style="@style/TextAppearance.Ghost.Label"
-            android:textColor="@color/on_surface_variant"
+            android:textColor="@color/on_surface_muted"
             android:textSize="11sp" />
     </LinearLayout>
-
-    <!-- Secondary controls, pushed to the corners so neither can be hit while reaching for talk. -->
-    <ImageButton
-        android:id="@+id/live_mute"
-        android:layout_width="54dp"
-        android:layout_height="54dp"
-        android:layout_gravity="bottom|start"
-        android:layout_marginStart="28dp"
-        android:layout_marginBottom="26dp"
-        android:background="@drawable/bg_live_controls"
-        android:contentDescription="@string/ghost_live_latch"
-        android:src="@drawable/ic_mic_off"
-        android:scaleType="centerInside"
-        android:padding="15dp"
-        app:tint="@color/on_surface" />
-
-    <ImageButton
-        android:id="@+id/live_exit"
-        android:layout_width="54dp"
-        android:layout_height="54dp"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="28dp"
-        android:layout_marginBottom="26dp"
-        android:background="@drawable/bg_live_controls"
-        android:contentDescription="@string/ghost_live_exit"
-        android:src="@drawable/ic_close"
-        android:scaleType="centerInside"
-        android:padding="15dp"
-        app:tint="@color/on_surface" />
 </FrameLayout>

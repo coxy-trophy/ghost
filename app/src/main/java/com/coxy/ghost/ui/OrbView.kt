@@ -76,6 +76,23 @@ class OrbView @JvmOverloads constructor(
         /** Colour bands the ramp is quantised into. Each is one paint and two draw calls. */
         const val BANDS = 9
 
+        /** Depth slices per band: facing you, angled away, and behind. See [sliceXY]. */
+        const val SLICES = 3
+
+        /** Stroke weight per slice, as a fraction of radius. Nearer is fatter. */
+        val SLICE_WIDTH = floatArrayOf(0.027f, 0.018f, 0.011f)
+
+        /** Peak alpha per slice, before [glow]. The back of the shell only has to suggest itself. */
+        val SLICE_ALPHA = floatArrayOf(248f, 165f, 58f)
+
+        /**
+         * How squarely a point must face the viewer to land in each slice.
+         *
+         * The first threshold is high on purpose: a small, bright, well-defined near face against a
+         * soft falloff is what gives the shell a direction to be lit from.
+         */
+        val SLICE_CUT = floatArrayOf(0.55f, 0.0f)
+
         /**
          * The cloud brain: the full ramp, amber rim through magenta to violet. Warm end first —
          * band 0 is the top of the shell.
@@ -108,6 +125,29 @@ class OrbView @JvmOverloads constructor(
     private var heat = 1f
     private var heatTarget = 1f
 
+    /**
+     * Smoothed 0..1 loudness, when something is feeding it.
+     *
+     * On the Live screen this replaces the separate waveform ribbon that used to sit above the
+     * orb. Three things were competing to be GHOST's presence — a floor bloom, a ribbon and a ring
+     * of buttons — and none of them won. Folding the meter into the orb keeps the honest half of
+     * the ribbon (you can still see the mic is genuinely hearing you) and leaves one presence on
+     * screen instead of three.
+     *
+     * Eased hard, because a single loud syllable should make her swell, not flinch.
+     */
+    private var level = 0f
+    private var levelTarget = 0f
+
+    /**
+     * Supplies loudness as 0..1, sampled once per frame.
+     *
+     * A pull rather than a push for the same reason [WaveformView] used one: loudness changes about
+     * ten times a second while the perception state that would carry it changes far less often, so
+     * pushing shows an orb that lags well behind the voice it is drawing.
+     */
+    var levelProvider: (() -> Float)? = null
+
     private var phase = 0f
     private var radius = 0f
 
@@ -122,26 +162,30 @@ class OrbView @JvmOverloads constructor(
     private val bandStart = IntArray(BANDS + 1)
 
     /**
-     * Per band, a scratch buffer of screen x/y pairs. Front-facing points fill from the head and
-     * back-facing points fill from the tail, so one buffer serves both draw calls and neither
-     * needs sorting.
+     * Per band, per depth slice, a scratch buffer of screen x/y pairs.
+     *
+     * Three slices rather than the two this started with, because front-versus-back only tells you
+     * which half of the shell a point is on. Bucketing by how squarely a point faces the viewer is
+     * a Lambert term with the light at the camera, and it is what makes the shell read as *lit*
+     * rather than as two flat scatters at different opacities — the silhouette falls away, the
+     * face nearest you catches the light, and the shell gains a form.
+     *
+     * The bucketing happens in the same per-frame loop that already projected every point, so it
+     * costs three comparisons and nothing else. Draw calls go from 18 to 27, still nowhere near
+     * one per particle.
      */
-    private lateinit var bandXY: Array<FloatArray>
-    private val frontCount = IntArray(BANDS)
-    private val backCount = IntArray(BANDS)
+    private lateinit var sliceXY: Array<Array<FloatArray>>
+    private val sliceCount = Array(BANDS) { IntArray(SLICES) }
 
-    private val frontPaint = Array(BANDS) { Paint(Paint.ANTI_ALIAS_FLAG) }
-    private val backPaint = Array(BANDS) { Paint(Paint.ANTI_ALIAS_FLAG) }
+    private val slicePaint = Array(BANDS) { Array(SLICES) { Paint(Paint.ANTI_ALIAS_FLAG) } }
     private val bloomPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val corePaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     init {
         buildShell()
-        for (b in 0 until BANDS) {
-            frontPaint[b].style = Paint.Style.STROKE
-            frontPaint[b].strokeCap = Paint.Cap.ROUND
-            backPaint[b].style = Paint.Style.STROKE
-            backPaint[b].strokeCap = Paint.Cap.ROUND
+        for (b in 0 until BANDS) for (sl in 0 until SLICES) {
+            slicePaint[b][sl].style = Paint.Style.STROKE
+            slicePaint[b][sl].strokeCap = Paint.Cap.ROUND
         }
     }
 
@@ -196,7 +240,9 @@ class OrbView @JvmOverloads constructor(
             val at = cursor[b]++
             px[at] = tmpX[i]; py[at] = tmpY[i]; pz[at] = tmpZ[i]
         }
-        bandXY = Array(BANDS) { FloatArray(2 * counts[it]) }
+        // Each slice is sized for the whole band: which points land where changes every frame as
+        // the shell turns, so any slice can hold all of them for one frame.
+        sliceXY = Array(BANDS) { b -> Array(SLICES) { FloatArray(2 * counts[b]) } }
     }
 
     private val animator = ValueAnimator.ofFloat(0f, (2 * PI).toFloat()).apply {
@@ -209,6 +255,8 @@ class OrbView @JvmOverloads constructor(
             breath += (target.breath - breath) * 0.06f
             tempo += (target.tempo - tempo) * 0.06f
             heat += (heatTarget - heat) * 0.04f
+            levelTarget = levelProvider?.invoke()?.coerceIn(0f, 1f) ?: 0f
+            level += (levelTarget - level) * 0.14f
             invalidate()
         }
     }
@@ -257,27 +305,30 @@ class OrbView @JvmOverloads constructor(
         if (radius <= 0f) return
 
         val t = phase * tempo
-        val r = radius * (1f + sin(phase) * breath)
+        // Voice swells her. Additive on top of the breath rather than replacing it, so she is
+        // never completely still and never stops being the same object.
+        val r = radius * (1f + sin(phase) * breath + level * 0.11f)
+        val lit = (glow + level * 0.4f).coerceIn(0f, 1.6f)
 
-        // One rotation about the vertical, plus a fixed tilt so the poles are never edge-on and
-        // the ramp always reads top-to-bottom.
+        // One rotation about the vertical, plus a tilt that drifts. A fixed tilt reads as a
+        // turntable — the same silhouette every revolution — and the drift is what keeps it
+        // looking like something hanging in the air rather than something mounted on a spindle.
+        val tilt = 0.28f + 0.10f * sin(phase * 0.31f)
         val cosA = cos(t); val sinA = sin(t)
-        val tiltC = cos(0.28f); val tiltS = sin(0.28f)
+        val tiltC = cos(tilt); val tiltS = sin(tilt)
 
         canvas.save()
         canvas.translate(width * 0.5f, height * 0.5f)
 
-        bloomPaint.alpha = (150 * glow).toInt().coerceIn(0, 255)
+        bloomPaint.alpha = (150 * lit).toInt().coerceIn(0, 255)
         canvas.drawCircle(0f, 0f, r * 2.1f, bloomPaint)
 
-        java.util.Arrays.fill(frontCount, 0)
-        java.util.Arrays.fill(backCount, 0)
-
         for (b in 0 until BANDS) {
-            val buf = bandXY[b]
+            val slices = sliceXY[b]
+            val counts = sliceCount[b]
+            counts[0] = 0; counts[1] = 0; counts[2] = 0
             val end = bandStart[b + 1]
-            var head = 0                 // front-facing points grow from the start
-            var tail = buf.size          // back-facing points grow from the end
+
             for (i in bandStart[b] until end) {
                 val x0 = px[i]; val y0 = py[i]; val z0 = pz[i]
                 // Yaw, then tilt. Only y and z need the tilt applied.
@@ -285,34 +336,34 @@ class OrbView @JvmOverloads constructor(
                 val zr = -x0 * sinA + z0 * cosA
                 val yr = y0 * tiltC - zr * tiltS
                 val zf = y0 * tiltS + zr * tiltC
+
+                // How squarely this point faces the viewer, which with the light at the camera is
+                // its shading. Three buckets is enough to read as a lit surface and cheap enough
+                // to do in the loop that was already projecting the point.
+                val slice = if (zf > SLICE_CUT[0]) 0 else if (zf > SLICE_CUT[1]) 1 else 2
+                val at = counts[slice]
+                val buf = slices[slice]
                 // Screen y grows downward, so the shell's north pole — band 0, the warm end of
                 // the ramp — has to be negated to land at the top of the view.
-                if (zf >= 0f) {
-                    buf[head] = xr * r; buf[head + 1] = -yr * r; head += 2
-                } else {
-                    tail -= 2
-                    buf[tail] = xr * r; buf[tail + 1] = -yr * r
-                }
+                buf[at] = xr * r
+                buf[at + 1] = -yr * r
+                counts[slice] = at + 2
             }
-            frontCount[b] = head
-            backCount[b] = buf.size - tail
 
             val color = bandColor(b)
-            // Front half: full weight. Back half: dimmer and finer, so the shell occludes itself
-            // and you read a solid object rather than a flat scatter.
-            frontPaint[b].color = color
-            frontPaint[b].strokeWidth = r * 0.021f
-            frontPaint[b].alpha = (232 * glow).toInt().coerceIn(0, 255)
-            backPaint[b].color = color
-            backPaint[b].strokeWidth = r * 0.013f
-            backPaint[b].alpha = (74 * glow).toInt().coerceIn(0, 255)
-
-            if (backCount[b] > 0) canvas.drawPoints(buf, tail, backCount[b], backPaint[b])
-            if (frontCount[b] > 0) canvas.drawPoints(buf, 0, frontCount[b], frontPaint[b])
+            // Drawn back to front, so the near face lands on top of what it should be hiding.
+            for (sl in SLICES - 1 downTo 0) {
+                if (counts[sl] == 0) continue
+                val paint = slicePaint[b][sl]
+                paint.color = color
+                paint.strokeWidth = r * SLICE_WIDTH[sl]
+                paint.alpha = (SLICE_ALPHA[sl] * lit).toInt().coerceIn(0, 255)
+                canvas.drawPoints(slices[sl], 0, counts[sl], paint)
+            }
         }
 
         // A faint interior wash, so the shell has something inside it rather than a hole.
-        corePaint.alpha = (120 * glow).toInt().coerceIn(0, 255)
+        corePaint.alpha = (120 * lit).toInt().coerceIn(0, 255)
         canvas.drawCircle(0f, 0f, r * 0.75f, corePaint)
 
         canvas.restore()
