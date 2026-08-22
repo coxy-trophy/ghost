@@ -15,6 +15,7 @@ import com.coxy.ghost.net.KnownDevice
 import com.coxy.ghost.net.KnownNetwork
 import com.coxy.ghost.net.LanScanner
 import com.coxy.ghost.net.NetworkMemory
+import com.coxy.ghost.net.ios.IosPhone
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -67,7 +68,12 @@ class DevicesPanel(
             val rows = withContext(Dispatchers.IO) {
                 networks.associateWith { NetworkMemory.devices(context, it.id) }
             }
-            render(networks, rows, currentId)
+            val phones = withContext(Dispatchers.IO) {
+                runCatching {
+                    com.coxy.ghost.memory.GhostDatabase.get(context).iosDao().phones()
+                }.getOrDefault(emptyList())
+            }
+            render(networks, rows, currentId, phones)
         }
     }
 
@@ -99,9 +105,19 @@ class DevicesPanel(
     private fun render(
         networks: List<KnownNetwork>,
         devicesByNetwork: Map<KnownNetwork, List<KnownDevice>>,
-        currentNetworkId: Long?
+        currentNetworkId: Long?,
+        phones: List<IosPhone>
     ) {
         list.removeAllViews()
+
+        // iPhones come first and are not under any network heading: they are configured rather
+        // than discovered, and they are reachable through their relay whether or not GHOST is on
+        // the same Wi-Fi as them.
+        list.addView(sectionHeader("iPhones", "add") { editPhone(null) })
+        if (phones.isEmpty()) {
+            list.addView(caption("None set up. Add one with its relay address, then register the Shortcuts it should answer to."))
+        }
+        for (phone in phones) list.addView(phoneRow(phone))
         val total = devicesByNetwork.values.sumOf { it.size }
         summary.text = if (networks.isEmpty()) {
             context.getString(R.string.ghost_devices_empty)
@@ -317,6 +333,123 @@ class DevicesPanel(
         setPadding(dp(12), dp(12), dp(12), dp(12))
         isClickable = true
         setOnClickListener { onTap() }
+    }
+
+    /** A section title with an action on the right, e.g. "iPhones   add". */
+    private fun sectionHeader(title: String, actionLabel: String, onAction: () -> Unit) =
+        LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(14), 0, dp(6))
+            addView(TextView(context).apply {
+                text = title
+                setTextColor(ContextCompat.getColor(context, R.color.on_surface))
+                textSize = 15f
+                typeface = android.graphics.Typeface.create("sans-serif-medium", 0)
+                layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+            })
+            addView(TextView(context).apply {
+                text = actionLabel
+                setTextColor(ContextCompat.getColor(context, R.color.accent))
+                textSize = 13f
+                setPadding(dp(10), dp(6), dp(4), dp(6))
+                isClickable = true
+                setOnClickListener { onAction() }
+            })
+        }
+
+    private fun phoneRow(phone: IosPhone): View {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setBackgroundResource(R.drawable.bg_card)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(6) }
+            isClickable = true
+            setOnClickListener { editPhone(phone) }
+        }
+        row.addView(TextView(context).apply {
+            text = phone.nickname
+            setTextColor(ContextCompat.getColor(context, R.color.accent_soft))
+            textSize = 14f
+        })
+        row.addView(TextView(context).apply {
+            val actions = phone.actionSet()
+            // The count is the useful number: an iPhone with no registered Shortcuts is set up but
+            // cannot do anything, and that reads as broken unless it is said plainly.
+            text = if (actions.isEmpty()) "no actions registered yet"
+            else "${actions.size} actions · ${actions.joinToString(", ").take(60)}"
+            setTextColor(ContextCompat.getColor(context, R.color.on_surface_muted))
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+        })
+        return row
+    }
+
+    /** Add or edit an iPhone: what to call it, where its relay is, and what it answers to. */
+    private fun editPhone(existing: IosPhone?) {
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        fun field(hint: String, value: String?, lines: Int = 1) = EditText(context).apply {
+            this.hint = hint
+            setText(value.orEmpty())
+            if (lines > 1) {
+                setLines(lines)
+                isSingleLine = false
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            }
+            container.addView(this)
+        }
+        val name = field("Name — what you'll call it", existing?.nickname)
+        val url = field("Relay URL (may contain {action})", existing?.relayUrl)
+        val header = field("Auth header name (optional)", existing?.authHeader)
+        val secret = field("Auth header value (optional)", existing?.authValue)
+        val actions = field("Actions, one per line", existing?.actions, lines = 4)
+
+        AlertDialog.Builder(context, R.style.Theme_Ghost_Dialog)
+            .setTitle(if (existing == null) "Add an iPhone" else existing.nickname)
+            .setView(android.widget.ScrollView(context).apply { addView(container) })
+            .setPositiveButton("Save") { _, _ ->
+                val nickname = name.text.toString().trim()
+                val relay = url.text.toString().trim()
+                if (nickname.isEmpty() || relay.isEmpty()) {
+                    Toast.makeText(context, "It needs a name and a relay URL", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        val dao = com.coxy.ghost.memory.GhostDatabase.get(context).iosDao()
+                        val row = (existing ?: IosPhone(
+                            nickname = nickname, relayUrl = relay,
+                            addedMs = System.currentTimeMillis()
+                        )).copy(
+                            nickname = nickname,
+                            relayUrl = relay,
+                            authHeader = header.text.toString().trim().ifEmpty { null },
+                            authValue = secret.text.toString().trim().ifEmpty { null },
+                            actions = actions.text.toString().trim()
+                        )
+                        if (existing == null) dao.insert(row) else dao.update(row)
+                    }
+                    refresh()
+                }
+            }
+            .apply {
+                if (existing != null) setNeutralButton("Forget") { _, _ ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            com.coxy.ghost.memory.GhostDatabase.get(context).iosDao().forget(existing.id)
+                        }
+                        refresh()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun caption(text: String) = TextView(context).apply {

@@ -21,9 +21,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         com.coxy.ghost.personality.PersonalitySnapshot::class,
         com.coxy.ghost.cloud.CloudInteraction::class,
         com.coxy.ghost.net.KnownNetwork::class,
-        com.coxy.ghost.net.KnownDevice::class
+        com.coxy.ghost.net.KnownDevice::class,
+        com.coxy.ghost.net.ios.IosPhone::class
     ],
-    version = 4,
+    version = 5,
     // Exported to app/schemas so future migrations can be diffed and tested against the version
     // they migrate from. v1 and v2 predate this and cannot be reconstructed.
     exportSchema = true
@@ -33,6 +34,7 @@ abstract class GhostDatabase : RoomDatabase() {
     abstract fun personalityDao(): com.coxy.ghost.personality.PersonalityDao
     abstract fun cloudDao(): com.coxy.ghost.cloud.CloudInteractionDao
     abstract fun networkDao(): com.coxy.ghost.net.NetworkDao
+    abstract fun iosDao(): com.coxy.ghost.net.ios.IosDao
 
     companion object {
         @Volatile private var instance: GhostDatabase? = null
@@ -52,6 +54,36 @@ abstract class GhostDatabase : RoomDatabase() {
          * both indexes — because migration validation compares them field by field and a mismatch
          * fails at open time on a device holding real data rather than at build time here.
          */
+        /**
+         * v4 → v5: iPhones, which are configured rather than discovered.
+         *
+         * Column order, nullability and the unique index match Room's generated schema exactly;
+         * migration validation compares them field by field and fails at open time on a device
+         * holding real data rather than at build time here.
+         */
+        internal val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `ios_phone` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `nickname` TEXT NOT NULL,
+                        `relayUrl` TEXT NOT NULL,
+                        `authHeader` TEXT,
+                        `authValue` TEXT,
+                        `actions` TEXT NOT NULL,
+                        `addedMs` INTEGER NOT NULL,
+                        `lastUsedMs` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_ios_phone_nickname` " +
+                        "ON `ios_phone` (`nickname`)"
+                )
+            }
+        }
+
         internal val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -168,7 +200,7 @@ abstract class GhostDatabase : RoomDatabase() {
                 GhostDatabase::class.java,
                 "ghost_memory.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build().also { instance = it }
         }
     }

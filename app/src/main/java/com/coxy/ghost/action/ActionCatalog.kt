@@ -137,6 +137,27 @@ object ActionCatalog {
             requiredParams = listOf("device", "key"),
             description = "Press a remote key on a paired TV — power, home, up, volume, mute"
         ),
+        // An iPhone, through a relay it is running. What it can do is whatever Shortcuts Coxy has
+        // built, so the command is free text validated against what he registered — not an enum
+        // here, which would mean a new build every time he adds a Shortcut.
+        "iphone_control" to Entry(
+            tier = ActionTier.TIER_2_DISRUPTIVE,
+            requiredParams = listOf("device", "command"),
+            optionalParams = listOf("value"),
+            description = "Run one of the Shortcuts set up on an iPhone"
+        ),
+        "iphone_ask" to Entry(
+            tier = ActionTier.TIER_0_READ_ONLY,
+            requiredParams = listOf("device", "command"),
+            optionalParams = listOf("value"),
+            description = "Ask an iPhone something and wait for its Shortcut to answer"
+        ),
+        "iphone_actions" to Entry(
+            tier = ActionTier.TIER_0_READ_ONLY,
+            requiredParams = listOf("device"),
+            description = "List what an iPhone has been set up to do"
+        ),
+
         // Another Android phone, over its debug bridge. Tier 2: the effect lands on a screen in
         // another room, and is as recoverable as pressing the button yourself would be.
         "phone_control" to Entry(

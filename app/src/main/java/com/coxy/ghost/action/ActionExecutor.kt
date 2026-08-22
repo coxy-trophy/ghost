@@ -26,6 +26,7 @@ class ActionExecutor(private val context: Context) {
 
     private val framework = FrameworkExecutor(context)
     private val lan = com.coxy.ghost.net.LanExecutor(context)
+    private val ios = com.coxy.ghost.net.ios.IosExecutor(context)
 
     /**
      * Run all actions that do not require confirmation. Returns the results plus a list of Tier 3
@@ -52,6 +53,7 @@ class ActionExecutor(private val context: Context) {
         // Network control suspends (a scan, then HTTP to the device), unlike every other executor
         // here, which is why runSingle became a suspend function rather than blocking on it.
         if (action.id in com.coxy.ghost.net.LanExecutor.ACTION_IDS) return lan.run(action)
+        if (action.id in com.coxy.ghost.net.ios.IosExecutor.ACTION_IDS) return ios.run(action)
         return when (action.id) {
             "toggle_wifi", "toggle_bluetooth",
             "force_stop_app", "disable_app", "uninstall_app", "send_sms" -> SuExecutor.run(action)
