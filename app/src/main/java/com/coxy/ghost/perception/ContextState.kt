@@ -347,7 +347,16 @@ fun ContextState.suppressedClauses(): List<String> {
  * Kept compact to minimise token cost on a 1.5B model with an 8k context budget — transcripts are
  * hard-truncated to ~15 words, and the camera is reported as metadata only (the model cannot see).
  */
-fun ContextState.toPromptBlock(): String = "[CONTEXT ${renderClauses().parts.joinToString(" ")}]"
+/**
+ * The `[CONTEXT ...]` line.
+ *
+ * [suffix] is appended inside the brackets when the caller has something to add — see
+ * [GhostPrompts.CONTEXT_RULE]. It is a parameter rather than baked in because this function is
+ * also how [hasSignal]'s invariant is checked: the block is worth sending exactly when it has
+ * something to say, and text that is always present would make an empty block look full.
+ */
+fun ContextState.toPromptBlock(suffix: String = ""): String =
+    "[CONTEXT ${renderClauses().parts.joinToString(" ")}$suffix]"
 
 /** A pick-up older than this is no longer "just now" and is dropped from the context block. */
 private const val PICK_UP_RECENT_MS = 90_000L

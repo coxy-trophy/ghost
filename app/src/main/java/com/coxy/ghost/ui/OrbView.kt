@@ -57,11 +57,20 @@ class OrbView @JvmOverloads constructor(
         val breath: Float,
         /** Multiplier on the rotation clock. */
         val tempo: Float,
+        /**
+         * Depth of the wave that travels down the shell, as a fraction of radius.
+         *
+         * The thing that stops her looking like a rotating model. A rigid shell turning at constant
+         * speed is a turntable however well it is shaded; bands expanding and contracting in
+         * sequence is something breathing. Deepest while she is talking, because that is when she
+         * is most obviously doing something.
+         */
+        val ripple: Float,
     ) {
-        IDLE(0.78f, 0.014f, 0.45f),
-        LISTENING(0.92f, 0.030f, 0.9f),
-        THINKING(1.10f, 0.020f, 2.1f),
-        SPEAKING(1.25f, 0.055f, 1.5f),
+        IDLE(0.78f, 0.014f, 0.45f, 0.012f),
+        LISTENING(0.92f, 0.030f, 0.9f, 0.020f),
+        THINKING(1.10f, 0.020f, 2.1f, 0.030f),
+        SPEAKING(1.25f, 0.055f, 1.5f, 0.055f),
     }
 
     private companion object {
@@ -120,6 +129,7 @@ class OrbView @JvmOverloads constructor(
     private var glow = OrbState.IDLE.glow
     private var breath = OrbState.IDLE.breath
     private var tempo = OrbState.IDLE.tempo
+    private var ripple = OrbState.IDLE.ripple
 
     /** 0 = local ramp, 1 = cloud ramp. Interpolated, so a brain switch is a warm-up not a flash. */
     private var heat = 1f
@@ -254,6 +264,7 @@ class OrbView @JvmOverloads constructor(
             glow += (target.glow - glow) * 0.06f
             breath += (target.breath - breath) * 0.06f
             tempo += (target.tempo - tempo) * 0.06f
+            ripple += (target.ripple - ripple) * 0.06f
             heat += (heatTarget - heat) * 0.04f
             levelTarget = levelProvider?.invoke()?.coerceIn(0f, 1f) ?: 0f
             level += (levelTarget - level) * 0.14f
@@ -329,6 +340,12 @@ class OrbView @JvmOverloads constructor(
             counts[0] = 0; counts[1] = 0; counts[2] = 0
             val end = bandStart[b + 1]
 
+            // A wave travelling from the top of the shell to the bottom. Nine sines a frame, and
+            // the difference between something turning and something breathing: each band reaches
+            // its widest a moment after the one above it, so the shell moves through itself rather
+            // than as one rigid body.
+            val rb = r * (1f + ripple * sin(phase * 2.1f - b * 0.55f))
+
             for (i in bandStart[b] until end) {
                 val x0 = px[i]; val y0 = py[i]; val z0 = pz[i]
                 // Yaw, then tilt. Only y and z need the tilt applied.
@@ -345,8 +362,8 @@ class OrbView @JvmOverloads constructor(
                 val buf = slices[slice]
                 // Screen y grows downward, so the shell's north pole — band 0, the warm end of
                 // the ramp — has to be negated to land at the top of the view.
-                buf[at] = xr * r
-                buf[at + 1] = -yr * r
+                buf[at] = xr * rb
+                buf[at + 1] = -yr * rb
                 counts[slice] = at + 2
             }
 
@@ -356,7 +373,7 @@ class OrbView @JvmOverloads constructor(
                 if (counts[sl] == 0) continue
                 val paint = slicePaint[b][sl]
                 paint.color = color
-                paint.strokeWidth = r * SLICE_WIDTH[sl]
+                paint.strokeWidth = rb * SLICE_WIDTH[sl]
                 paint.alpha = (SLICE_ALPHA[sl] * lit).toInt().coerceIn(0, 255)
                 canvas.drawPoints(slices[sl], 0, counts[sl], paint)
             }

@@ -92,4 +92,6 @@
     <string name="ghost_nav_devices">Devices</string>
     <string name="ghost_devices_empty">Nothing remembered yet. Join a Wi-Fi network and scan.</string>
     <string name="ghost_devices_here">on this network now</string>
+    <string name="ghost_voice_on">Voice on</string>
+    <string name="ghost_voice_off">Voice off</string>
 </resources>

@@ -2,7 +2,9 @@ package com.coxy.ghost.net
 
 import com.coxy.ghost.action.ActionCatalog
 import com.coxy.ghost.net.ios.IosPhone
+import com.coxy.ghost.perception.toPromptBlock
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -109,5 +111,76 @@ class IosTest {
             "https://api.pushcut.io/SECRET/notifications/play",
             phone.relayUrl.replace("{action}", "play")
         )
+    }
+}
+
+/**
+ * Her voice, and the rule that stopped her narrating her own senses.
+ */
+class VoiceAndSensesTest {
+
+    @Test
+    fun `instrumentation is never read aloud`() {
+        // "[ACTION ok launch_app: opened WhatsApp]" spoken out loud is GHOST narrating her own
+        // plumbing — the same reason those lines are kept out of her memory.
+        val said = com.coxy.ghost.perception.GhostVoice.strip(
+            "Opening it now.\n[ACTION ok launch_app: opened WhatsApp]"
+        )
+        assertEquals("Opening it now.", said)
+    }
+
+    @Test
+    fun `context and memory blocks are never read aloud either`() {
+        assertEquals(
+            "It's about four.",
+            com.coxy.ghost.perception.GhostVoice.strip("[CONTEXT activity=still] It's about four.")
+        )
+    }
+
+    @Test
+    fun `markdown emphasis is not spelled out`() {
+        // A speech engine reads asterisks as characters.
+        assertEquals(
+            "Kotlin 2.4.10 is the stable one.",
+            com.coxy.ghost.perception.GhostVoice.strip("**Kotlin 2.4.10** is the `stable` one.")
+        )
+    }
+
+    @Test
+    fun `a saved-device note is not read aloud`() {
+        assertEquals(
+            "Got it.",
+            com.coxy.ghost.perception.GhostVoice.strip("Got it.\n(Saved: 192.168.100.24 is \"TV\".)")
+        )
+    }
+
+    @Test
+    fun `an ordinary reply is spoken as written`() {
+        val reply = "Two point four ten, if you want the safe one."
+        assertEquals(reply, com.coxy.ghost.perception.GhostVoice.strip(reply))
+    }
+
+    @Test
+    fun `nothing to say produces nothing to speak`() {
+        assertEquals("", com.coxy.ghost.perception.GhostVoice.strip("[ACTION ok a: b]"))
+        assertEquals("", com.coxy.ghost.perception.GhostVoice.strip("   "))
+    }
+
+    @Test
+    fun `the senses block carries its own rule when it is sent`() {
+        // The instruction has to travel with the data. Forty paragraphs earlier in the system
+        // prompt did not work — she opened replies with how long he had been sitting still.
+        val state = com.coxy.ghost.perception.ContextState()
+        val block = state.toPromptBlock(com.coxy.ghost.perception.GhostPrompts.CONTEXT_RULE)
+        assertTrue(block.contains("do not mention unless asked"))
+        assertTrue("the rule belongs inside the block", block.endsWith("]"))
+    }
+
+    @Test
+    fun `the rule is not part of what the block is judged to say`() {
+        // hasSignal() and the block are derived from one pass so that "worth sending" and "has
+        // something to say" cannot drift. Text that is always present would break that.
+        val state = com.coxy.ghost.perception.ContextState()
+        assertFalse(state.toPromptBlock().contains("do not mention"))
     }
 }

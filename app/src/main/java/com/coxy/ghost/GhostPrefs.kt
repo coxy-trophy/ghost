@@ -55,6 +55,9 @@ object GhostPrefs {
     /** Addresses of televisions that have accepted GHOST's remote-control certificate. */
     private val KEY_PAIRED_TVS = stringPreferencesKey("paired_tvs")
 
+    /** Whether GHOST speaks her replies aloud in Live mode. */
+    private val KEY_VOICE_ENABLED = booleanPreferencesKey("voice_enabled")
+
     /**
      * Which one-off memory cleanups have already run.
      *
@@ -151,6 +154,13 @@ object GhostPrefs {
 
     suspend fun setPairedTvs(ctx: Context, json: String) {
         ctx.ghostDataStore.edit { p -> p[KEY_PAIRED_TVS] = json }
+    }
+
+    suspend fun isVoiceEnabled(ctx: Context): Boolean =
+        ctx.ghostDataStore.data.map { it[KEY_VOICE_ENABLED] ?: true }.first()
+
+    suspend fun setVoiceEnabled(ctx: Context, enabled: Boolean) {
+        ctx.ghostDataStore.edit { p -> p[KEY_VOICE_ENABLED] = enabled }
     }
 
     suspend fun memoryCleanupVersion(ctx: Context): Int =

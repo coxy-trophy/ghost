@@ -711,6 +711,10 @@ class GhostService : LifecycleService() {
                 .let { if (nudgeAck != null) "$it\n\n$nudgeAck" else it }
                 .let { if (namingAck != null) "$it\n$namingAck" else it }
             ContextStore.update { it.copy(voiceResponse = finalReply) }
+            // Said out loud, because this reply came from someone talking rather than typing. The
+            // action lines are stripped inside speak() — reading "[ACTION ok launch_app: opened
+            // WhatsApp]" aloud would be GHOST narrating her own plumbing.
+            com.coxy.ghost.perception.GhostVoice.speak(finalReply)
 
             // After the reply completes (engine idle): persist the turn pair for future recall.
             memoryStore.remember("user", cmd, "voice")

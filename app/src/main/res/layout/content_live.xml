@@ -30,14 +30,26 @@
         android:gravity="center_horizontal">
 
         <!--
+          Slack above and below, so the presence group floats rather than hanging from the top.
+          With nothing heard or said yet — which is how this screen always opens — all the empty
+          space otherwise pools into one void between her and the controls, and she reads as
+          having slid to the ceiling.
+
+          Not an even split: 0.8 against 1.2 puts her a little above centre, where a face goes.
+        -->
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="0.8" />
+
+        <!--
           Fixed, not weighted. Given the remaining space the orb takes all of it and drives the
           text to the floor — the same fault that put the Chat greeting on the bottom edge.
         -->
         <com.coxy.ghost.ui.OrbView
             android:id="@+id/live_orb"
             android:layout_width="match_parent"
-            android:layout_height="300dp"
-            android:layout_marginTop="4dp" />
+            android:layout_height="330dp" />
 
         <!-- Her state, tight under her, like a nameplate rather than a status bar. -->
         <TextView
@@ -88,7 +100,7 @@
         <Space
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1" />
+            android:layout_weight="1.2" />
 
         <!--
           One row, not three positions. Talk is the only saturated thing on the screen and sits in

@@ -108,6 +108,22 @@
                     android:enabled="false"
                     android:text="@string/ghost_capture" />
             </LinearLayout>
+
+            <!-- Her voice. Beside the mic on purpose: one button per channel, in and out. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="10dp">
+
+                <Button
+                    android:id="@+id/btn_voice"
+                    style="@style/Widget.Ghost.Outline"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ghost_voice_on" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- ── Behaviour ───────────────────────────────────────── -->

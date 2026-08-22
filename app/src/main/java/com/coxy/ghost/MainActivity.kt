@@ -89,6 +89,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPersonality: android.widget.Button
     private lateinit var btnCloud: android.widget.Button
     private lateinit var btnMic: android.widget.Button
+    private lateinit var btnVoice: android.widget.Button
     private lateinit var statusDot: View
 
     // Three screens behind the bottom nav.
@@ -200,6 +201,7 @@ class MainActivity : AppCompatActivity() {
         btnPersonality = findViewById(R.id.btn_personality)
         btnCloud = findViewById(R.id.btn_cloud)
         btnMic = findViewById(R.id.btn_mic)
+        btnVoice = findViewById(R.id.btn_voice)
         statusDot = findViewById(R.id.status_dot)
         screenChat = findViewById(R.id.screen_chat)
         screenLive = findViewById(R.id.screen_live)
@@ -220,7 +222,11 @@ class MainActivity : AppCompatActivity() {
         // rather than idling at a convincing height — the reason it is fed from MicListener's own
         // loudness and not from ContextState.audioLevelDb, which is never written.
         liveOrb.levelProvider = {
-            if (MicListener.mode == MicListener.MicMode.OFF) 0f
+            // One number for "how much is happening", from whichever half of the conversation is
+            // active. Her words beat the orb while she talks; your voice swells it while you do.
+            if (com.coxy.ghost.perception.GhostVoice.speaking) {
+                com.coxy.ghost.perception.GhostVoice.pulse()
+            } else if (MicListener.mode == MicListener.MicMode.OFF) 0f
             else ((MicListener.lastRms - MicListener.RMS_FLOOR) /
                 (MicListener.RMS_CEIL - MicListener.RMS_FLOOR))
         }
@@ -262,6 +268,12 @@ class MainActivity : AppCompatActivity() {
         btnPersonality.setOnClickListener { showPersonalityDialog() }
         btnCloud.setOnClickListener { showCloudDialog() }
         btnMic.setOnClickListener { toggleMic() }
+        btnVoice.setOnClickListener { toggleVoice() }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val on = GhostPrefs.isVoiceEnabled(applicationContext)
+            com.coxy.ghost.perception.GhostVoice.enabled = on
+            withContext(Dispatchers.Main) { paintVoiceButton(on) }
+        }
         // The top bar's two discs are shortcuts to the settings behind the state they display,
         // not new behaviour: the brain indicator opens the cloud dialog that decides which brain
         // answers, and the grid opens the screen every other control lives on.
@@ -314,6 +326,7 @@ class MainActivity : AppCompatActivity() {
             // Before anything reads memory: clear turns that were never really said. See
             // [MemoryStore.runCleanups].
             runCatching { memoryStore.runCleanups(applicationContext) }
+            com.coxy.ghost.perception.GhostVoice.init(applicationContext)
             Embedder.init(applicationContext)
             val recent = memoryStore.recent(20)
             if (recent.isNotEmpty()) {
@@ -484,6 +497,9 @@ class MainActivity : AppCompatActivity() {
         screenSystem.visibility = if (tab == Tab.SYSTEM) View.VISIBLE else View.GONE
         screenPerception.visibility = if (tab == Tab.SENSES) View.VISIBLE else View.GONE
         screenDevices.visibility = if (tab == Tab.DEVICES) View.VISIBLE else View.GONE
+        // Walking out of Live stops her talking. Finishing a sentence to a screen he has already
+        // left is the phone-assistant behaviour this project exists to not be.
+        if (tab != Tab.LIVE) com.coxy.ghost.perception.GhostVoice.stop()
         // Redrawn on arrival, never scanned on arrival: a sweep wakes every device on the network
         // and should be something Coxy asks for, not something a glance triggers.
         if (tab == Tab.DEVICES) devicesPanel.refresh()
@@ -560,6 +576,10 @@ class MainActivity : AppCompatActivity() {
         cs.voiceCommand?.let { liveHeard.text = it }
         liveReply.text = cs.voiceResponse ?: ""
         val state = when {
+            // Speaking outranks thinking: the engine can still be finishing a reply she has
+            // already started saying, and what she is visibly doing is talking.
+            com.coxy.ghost.perception.GhostVoice.speaking ->
+                com.coxy.ghost.ui.OrbView.OrbState.SPEAKING
             EngineGate.busy -> com.coxy.ghost.ui.OrbView.OrbState.THINKING
             cs.micState == MicState.VOICE -> com.coxy.ghost.ui.OrbView.OrbState.LISTENING
             cs.micState == MicState.SILENT -> com.coxy.ghost.ui.OrbView.OrbState.IDLE
@@ -1034,6 +1054,21 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showPersonalityDialog() =
         PersonalityDialog(this, lifecycleScope, personalityRepo, ::startServiceWithAction).show()
+
+    /** Turn her voice on or off, and remember it. Silence has to survive a restart to be useful. */
+    private fun toggleVoice() {
+        val on = !com.coxy.ghost.perception.GhostVoice.enabled
+        com.coxy.ghost.perception.GhostVoice.enabled = on
+        if (!on) com.coxy.ghost.perception.GhostVoice.stop()
+        paintVoiceButton(on)
+        lifecycleScope.launch(Dispatchers.IO) {
+            GhostPrefs.setVoiceEnabled(applicationContext, on)
+        }
+    }
+
+    private fun paintVoiceButton(on: Boolean) {
+        btnVoice.text = getString(if (on) R.string.ghost_voice_on else R.string.ghost_voice_off)
+    }
 
     private fun showCloudDialog() = CloudDialog(this, lifecycleScope).show()
 
