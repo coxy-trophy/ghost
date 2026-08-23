@@ -102,9 +102,21 @@ object GhostVoice {
     /** Coxy's chosen voice, if he has picked one. Beats every heuristic below. */
     @Volatile var preferredVoice: String? = null
 
+    /** True when Piper is loaded and speaking, rather than Android's engine. */
+    val usingPiper: Boolean get() = piperWanted && PiperVoice.ready
+
+    @Volatile var piperWanted: Boolean = true
+
     fun init(context: Context) {
         if (tts != null) return
         appContext = context.applicationContext
+        // Loading the neural model takes seconds, so it happens off the main thread and the
+        // platform engine below is initialised regardless — she can speak the moment she has
+        // something to say, in whichever voice is ready by then.
+        Thread({ PiperVoice.load(context.applicationContext) }, "ghost-piper-load").apply {
+            isDaemon = true
+            start()
+        }
         tts = TextToSpeech(appContext) { status ->
             ready = status == TextToSpeech.SUCCESS
             if (!ready) {
@@ -227,9 +239,34 @@ object GhostVoice {
      * "robotic" means. A person stops for breath.
      */
     fun speak(text: String) {
-        if (!enabled || !ready) return
+        if (!enabled) return
+        val spoken = shape(strip(text))
+        if (spoken.isBlank()) return
+
+        // Piper first when it is loaded. Its beat comes from audio arriving rather than from word
+        // markers — sherpa reports neither, and the sound itself is the more honest signal anyway.
+        if (piperWanted && PiperVoice.ready) {
+            speaking = true
+            lastWordAt = System.currentTimeMillis()
+            Thread({
+                val ok = PiperVoice.speak(
+                    text = spoken,
+                    onProgress = { lastWordAt = System.currentTimeMillis() },
+                    onDone = { speaking = false }
+                )
+                // If the neural model failed mid-sentence, say it in the platform voice rather
+                // than leaving the reply unspoken.
+                if (!ok) platformSpeak(spoken)
+            }, "ghost-piper-speak").apply { isDaemon = true }.start()
+            return
+        }
+        platformSpeak(spoken)
+    }
+
+    private fun platformSpeak(spoken: String) {
+        if (!ready) return
         val engine = tts ?: return
-        val sentences = sentences(shape(strip(text)))
+        val sentences = sentences(spoken)
         if (sentences.isEmpty()) return
 
         voiceForNow()?.let { v ->
@@ -268,12 +305,23 @@ object GhostVoice {
         engine.speak(line, TextToSpeech.QUEUE_FLUSH, Bundle(), "preview-${System.nanoTime()}-last")
     }
 
+    /** Same, in the neural voice. Off the main thread: generation is not instant. */
+    fun previewPiper(line: String) {
+        if (!PiperVoice.ready) return
+        stop()
+        Thread({
+            PiperVoice.speak(line, onProgress = {}, onDone = {})
+        }, "ghost-piper-preview").apply { isDaemon = true }.start()
+    }
+
     fun stop() {
         runCatching { tts?.stop() }
+        runCatching { PiperVoice.stop() }
         speaking = false
     }
 
     fun shutdown() {
+        runCatching { PiperVoice.release() }
         runCatching { tts?.shutdown() }
         tts = null
         ready = false

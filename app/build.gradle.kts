@@ -42,8 +42,8 @@ android {
         minSdk = 33
         targetSdk = 36
 
-        versionCode = 58
-        versionName = "0.26.2"
+        versionCode = 59
+        versionName = "0.27.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -59,6 +59,14 @@ android {
     testOptions {
         unitTests {
             isReturnDefaultValues = true
+        }
+    }
+
+    // The sherpa AAR ships arm64, armv7, x86 and x86_64 — about 49 MB of which 30 is for
+    // architectures this phone is not. The llama natives were already arm64-only in practice.
+    defaultConfig {
+        ndk {
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
@@ -98,6 +106,20 @@ ksp {
 }
 
 dependencies {
+    /**
+     * sherpa-onnx: Piper neural text-to-speech, on device.
+     *
+     * A local AAR rather than a Maven dependency because there is no official one — only a
+     * third-party repackage on Maven Central, which is not something to take on trust for a library
+     * that ships four native binaries. `tools/install_piper_voice.sh` fetches this from k2-fsa's own
+     * release and is what makes the build reproducible; the AAR itself is gitignored, since a 49 MB
+     * binary in git is 49 MB in every clone for ever.
+     *
+     * It carries espeak-ng, which is the part that actually matters: Piper takes phonemes, not
+     * text, and without a phonemiser the model is unusable.
+     */
+    implementation(files("libs/sherpa-onnx.aar"))
+
     implementation(libs.bundles.androidx)
     implementation(libs.material)
     implementation(libs.androidx.lifecycle.service)

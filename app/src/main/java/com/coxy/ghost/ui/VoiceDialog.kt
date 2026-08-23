@@ -32,6 +32,9 @@ class VoiceDialog(
     private val scope: CoroutineScope
 ) {
 
+    /** Stands in for a Voice name in the saved preference; Piper is not one of Android's. */
+    private val PIPER = "piper:on-device"
+
     /** What each voice says when tapped. Long enough to judge, short enough to sit through. */
     private val sample =
         "I'm here. It's about four in the afternoon, and you've had that window open for hours."
@@ -43,15 +46,13 @@ class VoiceDialog(
             setPadding(dp(20), dp(4), dp(20), dp(4))
         }
 
-        if (voices.isEmpty()) {
-            container.addView(caption("No voices installed for this language."))
-        } else {
-            container.addView(
-                caption("Tap one to hear it. She'll keep whichever you choose.")
-            )
-        }
+        container.addView(caption("Tap one to hear it. She'll keep whichever you choose."))
 
-        var chosen = GhostVoice.preferredVoice ?: GhostVoice.voiceName
+        var chosen = if (GhostVoice.piperWanted && com.coxy.ghost.perception.PiperVoice.ready) {
+            PIPER
+        } else {
+            GhostVoice.preferredVoice ?: GhostVoice.voiceName
+        }
         val rows = mutableMapOf<String, TextView>()
 
         fun paint() {
@@ -63,6 +64,26 @@ class VoiceDialog(
                     )
                 )
             }
+        }
+
+        // Piper first, and named for what it is rather than for its file. It is the only entry
+        // here that is not one of Android's own voices, and the only one that is neural — the
+        // difference the rest of this dialog exists to let him hear.
+        if (com.coxy.ghost.perception.PiperVoice.ready) {
+            val row = TextView(activity).apply {
+                text = "Piper · southern English female · on-device"
+                textSize = 14f
+                setPadding(0, dp(11), 0, dp(11))
+                isClickable = true
+                setOnClickListener {
+                    chosen = PIPER
+                    paint()
+                    GhostVoice.previewPiper(sample)
+                }
+            }
+            rows[PIPER] = row
+            container.addView(row)
+            container.addView(caption("Below: Android's own voices."))
         }
 
         for (voice in voices) {
@@ -87,7 +108,8 @@ class VoiceDialog(
             .setView(ScrollView(activity).apply { addView(container) })
             .setPositiveButton("Use this one") { _, _ ->
                 GhostVoice.stop()
-                GhostVoice.applyPreferred(chosen)
+                GhostVoice.piperWanted = chosen == PIPER
+                if (chosen != PIPER) GhostVoice.applyPreferred(chosen)
                 scope.launch(Dispatchers.IO) {
                     GhostPrefs.setPreferredVoice(activity.applicationContext, chosen)
                 }

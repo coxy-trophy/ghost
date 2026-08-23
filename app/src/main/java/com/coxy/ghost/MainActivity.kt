@@ -274,9 +274,12 @@ class MainActivity : AppCompatActivity() {
             com.coxy.ghost.perception.GhostVoice.enabled = on
             // Applied before the engine finishes initialising as well as after: whichever order
             // they land in, the chosen voice is in place before she first speaks.
-            com.coxy.ghost.perception.GhostVoice.applyPreferred(
-                GhostPrefs.getPreferredVoice(applicationContext)
-            )
+            val saved = GhostPrefs.getPreferredVoice(applicationContext)
+            // The sentinel means "the neural one"; anything else is one of Android's by name.
+            com.coxy.ghost.perception.GhostVoice.piperWanted = saved == null || saved == "piper:on-device"
+            if (saved != null && saved != "piper:on-device") {
+                com.coxy.ghost.perception.GhostVoice.applyPreferred(saved)
+            }
         }
         // The top bar's two discs are shortcuts to the settings behind the state they display,
         // not new behaviour: the brain indicator opens the cloud dialog that decides which brain
