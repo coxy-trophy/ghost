@@ -44,6 +44,7 @@ object GhostPrefs {
      */
     private val KEY_WEB_SEARCH_ENABLED = booleanPreferencesKey("web_search_enabled")
 
+
     /**
      * Coxy's names for devices on the home network, as a JSON object keyed by `mac:`/`ip:`.
      *

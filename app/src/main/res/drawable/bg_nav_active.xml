@@ -1,9 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The drawer's current row. A soft rounded rectangle rather than the old pill: these are full-width
-  list rows now, and a 100dp radius on a row that wide reads as a lozenge rather than a selection.
+  A drawer row's touch feedback, and nothing else.
+
+  This used to be a filled lozenge marking the current screen. That belonged to the bottom bar it
+  came from, where five items compete inside one small pill and the active one has to be fenced off
+  to be found. In a list with room around it, the tint on the icon and label is already unambiguous,
+  and a filled bar behind one row makes the drawer look like a menu with a selection rather than a
+  set of places to go.
 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/accent_wash" />
-    <corners android:radius="12dp" />
-</shape>
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/glass_fill_hover">
+    <item android:id="@android:id/mask">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/white" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+</ripple>

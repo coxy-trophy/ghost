@@ -110,6 +110,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var drawerLayout: androidx.drawerlayout.widget.DrawerLayout
     /** The drawer's own copy of the perception line, so it says something when it is open. */
     private lateinit var drawerSubtitle: TextView
+    /** How far the drawer is open, 0..1. Drives the screen's corner radius as well as its motion. */
+    private var drawerSlide = 0f
+    /** The drawer footer's Start/Stop. The same two actions System has, where you can see her state. */
+    private lateinit var drawerPower: android.widget.TextView
     /** Live's mic band. Fed the same audio level the [CONTEXT] block reports. */
     /**
      * The orb. One of them now, and it belongs to Live.
@@ -128,6 +132,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnTopBrain: android.widget.ImageButton
     /** The composer's camera button. Same action as System's Capture. */
     private lateinit var btnCaptureChat: android.widget.ImageButton
+    /** The composer's brain pill: which brain answers, said in a word. Opens the cloud settings. */
+    private lateinit var brainPill: TextView
     private var pulse: android.animation.ValueAnimator? = null
 
     private val engine: InferenceEngine by lazy { AiChat.getInferenceEngine(applicationContext) }
@@ -186,10 +192,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The appearance is applied in GhostApp.onCreate, not here. Doing it at this point — even
+        // ahead of super.onCreate — resolved half the resources in one mode and half in the other.
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
-        onBackPressedDispatcher.addCallback { Log.w(TAG, "Ignore back press for simplicity") }
+        // The sample app this grew out of registered a callback here that swallowed every back
+        // press and logged "Ignore back press for simplicity". It has been removed: Back is how the
+        // drawer closes, and a handler that consumes it unconditionally sits in front of that.
 
         statusTv = findViewById(R.id.gguf)
         perceptionTv = findViewById(R.id.perception)
@@ -227,9 +237,19 @@ class MainActivity : AppCompatActivity() {
         drawerSubtitle = findViewById(R.id.drawer_subtitle)
         findViewById<TextView>(R.id.drawer_version).text =
             getString(R.string.ghost_version_fmt, com.coxy.ghost.BuildConfig.VERSION_NAME)
+        drawerPower = findViewById(R.id.drawer_power)
+        drawerPower.setOnClickListener {
+            if (GhostService.isRunning) stopGhost() else startGhost()
+            drawerLayout.closeDrawer(androidx.core.view.GravityCompat.START)
+        }
+        setUpDrawerMotion()
+        setUpThemeChoice()
         liveOrb = findViewById(R.id.live_orb)
         btnTopBrain = findViewById(R.id.btn_top_brain)
         btnCaptureChat = findViewById(R.id.btn_capture_chat)
+        brainPill = findViewById(R.id.brain_pill)
+        brainPill.setOnClickListener { showCloudDialog() }
+        findViewById<View>(R.id.btn_voice_chat).setOnClickListener { showTab(Tab.LIVE) }
         // The orb samples the mic itself each frame, which is the job the waveform ribbon above it
         // used to do. It reads flat unless the mic is genuinely open, so a dead mic looks dead
         // rather than idling at a convincing height — the reason it is fed from MicListener's own
@@ -490,6 +510,13 @@ class MainActivity : AppCompatActivity() {
         )
         // Mic toggle: only meaningful while the daemon is up (it owns the listener).
         btnMic.isEnabled = GhostService.isRunning
+
+        // The drawer's footer button is the same pair of actions as System's Start and Stop, so it
+        // reads the same state rather than keeping its own idea of whether she is up.
+        val running = GhostService.isRunning
+        drawerPower.setText(if (running) R.string.ghost_stop else R.string.ghost_start)
+        drawerPower.isEnabled = running || modelPath != null
+        drawerPower.alpha = if (drawerPower.isEnabled) 1f else 0.4f
     }
 
     private enum class Tab { CHAT, LIVE, SYSTEM, SENSES, DEVICES }
@@ -523,6 +550,106 @@ class MainActivity : AppCompatActivity() {
         if (force || lm.findLastVisibleItemPosition() >= last - 2) {
             messagesRv.post { messagesRv.scrollToPosition(last) }
         }
+    }
+
+    /**
+     * The drawer, moving the way the Claude app's does.
+     *
+     * A stock DrawerLayout slides a panel over a stationary screen and drops a black scrim on top of
+     * it. This does the opposite: nothing is covered. The screen itself travels right by exactly the
+     * drawer's width, shrinks a little as it goes, and rounds its corners on the way — so the drawer
+     * is not laid over the app, the app is moved aside to show what was behind it. The screen stays
+     * legible the whole time, which is the point; a scrim says "you have left", and this says "this
+     * is still here, and here is where else you can go".
+     *
+     * Three details carry it, and all three matter:
+     *
+     *  - The scrim is cleared. With the screen still fully lit, a wash of black over it would be the
+     *    only dimmed thing on a display that is otherwise showing two lit surfaces side by side.
+     *  - The pivot is the screen's left edge, so shrinking opens a gap at the top and bottom without
+     *    pulling the screen back from the drawer it is sitting against.
+     *  - The corner radius is driven from the same slide fraction rather than switched on at the
+     *    end, because a square screen that suddenly rounds when the drawer latches open is a jump
+     *    exactly where the eye is already following movement.
+     */
+    /**
+     * The appearance picker: light, dark, or whatever the phone is doing.
+     *
+     * Applied through AppCompatDelegate rather than by swapping colours by hand, so the whole
+     * resource system switches with it — values-night, the WebView's prefers-color-scheme, and the
+     * status bar polarity all follow from the one call. Choosing a mode that is already active is a
+     * no-op inside AppCompat, so no guard is needed against re-applying it.
+     */
+    private fun setUpThemeChoice() {
+        val choices = listOf(
+            R.id.theme_light to androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO,
+            R.id.theme_dark to androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES,
+            R.id.theme_system to androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM,
+        )
+
+        fun paint(active: Int) {
+            for ((id, mode) in choices) {
+                val on = mode == active
+                findViewById<TextView>(id).apply {
+                    setBackgroundResource(if (on) R.drawable.bg_theme_choice else 0)
+                    setTextColor(
+                        ContextCompat.getColor(
+                            this@MainActivity,
+                            if (on) R.color.accent else R.color.on_surface_variant
+                        )
+                    )
+                }
+            }
+        }
+
+        paint(savedNightMode(this))
+
+        for ((id, mode) in choices) {
+            findViewById<View>(id).setOnClickListener {
+                paint(mode)
+                getSharedPreferences(THEME_PREFS, MODE_PRIVATE)
+                    .edit().putInt(KEY_NIGHT_MODE, mode).apply()
+                // Recreates the Activity. Everything on screen is rebuilt from state that outlives
+                // it — the transcript comes back from the memory DB, the daemon and the model are
+                // owned by the Service — so there is nothing here to preserve across the switch.
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(mode)
+            }
+        }
+    }
+
+    private fun setUpDrawerMotion() {
+        val content = findViewById<View>(R.id.main)
+        val drawer = findViewById<View>(R.id.nav_drawer)
+
+        // Wide enough that the drawer is the screen while it is open, narrow enough that the app
+        // behind it is still recognisably there. The Claude app leaves about a fifth showing.
+        drawer.layoutParams = drawer.layoutParams.apply {
+            width = (resources.displayMetrics.widthPixels * 0.80f).toInt()
+        }
+
+        drawerLayout.setScrimColor(android.graphics.Color.TRANSPARENT)
+        content.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: android.graphics.Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, CONTENT_CORNER * drawerSlide)
+            }
+        }
+        content.clipToOutline = true
+
+        drawerLayout.addDrawerListener(object : androidx.drawerlayout.widget.DrawerLayout.SimpleDrawerListener() {
+            override fun onDrawerSlide(drawerView: View, slideOffset: Float) {
+                drawerSlide = slideOffset
+                content.pivotX = 0f
+                content.pivotY = content.height / 2f
+                content.translationX = drawerView.width * slideOffset
+                val scale = 1f - CONTENT_SHRINK * slideOffset
+                content.scaleX = scale
+                content.scaleY = scale
+                // The shadow is what stops the two surfaces reading as one flat plane once the
+                // scrim is gone.
+                content.elevation = CONTENT_LIFT * slideOffset
+                content.invalidateOutline()
+            }
+        })
     }
 
     private fun showTab(tab: Tab) {
@@ -569,9 +696,9 @@ class MainActivity : AppCompatActivity() {
             findViewById<android.widget.ImageView>(iconId).imageTintList =
                 android.content.res.ColorStateList.valueOf(if (active) on else off)
             findViewById<TextView>(labelId).setTextColor(if (active) on else off)
-            findViewById<View>(navId).setBackgroundResource(
-                if (active) R.drawable.bg_nav_active else 0
-            )
+            // The row's background is touch feedback in both states now; being the current screen
+            // is said by the tint above, the way it is in the Claude app's drawer.
+            findViewById<View>(navId).setBackgroundResource(R.drawable.bg_nav_active)
         }
         paint(R.id.nav_chat_icon, R.id.nav_chat_label, R.id.nav_chat, tab == Tab.CHAT)
         paint(R.id.nav_live_icon, R.id.nav_live_label, R.id.nav_live, tab == Tab.LIVE)
@@ -637,7 +764,10 @@ class MainActivity : AppCompatActivity() {
 
         // Live mode mirrors the voice channel and drives the orb.
         cs.voiceCommand?.let { liveHeard.text = it }
-        liveReply.text = com.coxy.ghost.ui.Markup.inline(cs.voiceResponse ?: "")
+        liveReply.text = com.coxy.ghost.ui.Markup.render(
+            cs.voiceResponse ?: "",
+            ContextCompat.getColor(this, R.color.on_live_field_muted)
+        )
         val state = when {
             // Speaking outranks thinking: the engine can still be finishing a reply she has
             // already started saying, and what she is visibly doing is talking.
@@ -671,6 +801,20 @@ class MainActivity : AppCompatActivity() {
         )
         btnTopBrain.setBackgroundResource(
             if (onCloud) R.drawable.bg_glass_circle_active else R.drawable.bg_glass_circle
+        )
+        // The composer says it in a word. UNKNOWN is not "local" — nothing has answered yet — so it
+        // names the brain that would answer rather than one that has.
+        brainPill.setText(
+            when (brainNow) {
+                com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD -> R.string.ghost_brain_cloud
+                else -> R.string.ghost_brain_local
+            }
+        )
+        brainPill.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (onCloud) R.color.accent else R.color.on_surface_variant
+            )
         )
 
         // DORMANT has to mean dormant. Nothing listens ambiently any more, so the idle label
@@ -1128,6 +1272,33 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private val TAG = MainActivity::class.java.simpleName
         private const val DIRECTORY_MODELS = "models"
+
+        /**
+         * Where the chosen appearance lives.
+         *
+         * SharedPreferences rather than the DataStore everything else uses, and the reason is
+         * timing: the mode has to be applied before setContentView or the first frame is drawn in
+         * the wrong palette and then repainted. DataStore is suspend-only by design and reading it
+         * here would mean blocking the main thread at every launch to avoid a flash. This is the
+         * one setting with that constraint.
+         */
+        private const val THEME_PREFS = "ghost_theme"
+        private const val KEY_NIGHT_MODE = "night_mode"
+
+        /** The saved appearance, or following the phone if nothing has been chosen. */
+        fun savedNightMode(ctx: android.content.Context): Int =
+            ctx.getSharedPreferences(THEME_PREFS, android.content.Context.MODE_PRIVATE)
+                .getInt(
+                    KEY_NIGHT_MODE,
+                    androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+                )
+
+        /** How far the screen's corners round as it slides aside for the drawer, in px. */
+        private const val CONTENT_CORNER = 34f
+        /** How much the screen shrinks. Small on purpose — enough to read as depth, not as a card. */
+        private const val CONTENT_SHRINK = 0.06f
+        /** The shadow that separates the two lit surfaces once the scrim is gone, in px. */
+        private const val CONTENT_LIFT = 26f
 
         private fun Boolean.toRunLabel() = if (this) "running" else "stopped"
     }

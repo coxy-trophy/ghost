@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Chat. The orb and one question sit at the top of the transcript as its first item, so the
-  conversation scrolls past them rather than replacing them; the telemetry row and composer stay
-  put. The sensor pills sit directly above the composer rather than in a bordered card at the top,
-  because they are context for what you are about to say.
+  Chat.
+
+  The composer is one rounded card with two rows inside it: what you are writing, and the controls
+  that act on it. It used to be a single pill with the field and two buttons fighting for the same
+  line, which capped the message at one visible line and put the camera where a long sentence wanted
+  to be. Split, the field can grow to five lines before it scrolls and the controls never move.
+
+  The sensor strip sits between the transcript and the composer, bleeding off both edges rather than
+  sitting in a card: the readings are context for what you are about to say, not a panel about the
+  phone.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -25,11 +31,6 @@
         android:overScrollMode="never"
         tools:listitem="@layout/item_message_assistant" />
 
-    <!--
-      Sensor telemetry. Built at runtime from ContextState so the row shows only what is actually
-      known, the same rule the [CONTEXT] prompt block follows. It bleeds off both edges instead of
-      sitting in a card: the readings are a strip you can push around, not a panel.
-    -->
     <HorizontalScrollView
         android:id="@+id/sensor_card"
         android:layout_width="match_parent"
@@ -50,63 +51,101 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="bottom"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginBottom="8dp">
+        android:orientation="vertical"
+        android:background="@drawable/bg_input_bar"
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginBottom="10dp"
+        android:paddingHorizontal="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="8dp">
+
+        <EditText
+            android:id="@+id/user_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@null"
+            android:enabled="false"
+            android:maxLines="5"
+            android:paddingHorizontal="12dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="6dp"
+            android:textSize="16sp"
+            android:textColor="@color/on_surface"
+            android:textColorHint="@color/on_surface_muted"
+            android:textCursorDrawable="@null"
+            android:inputType="textCapSentences|textMultiLine"
+            android:hint="@string/ghost_input_hint" />
 
         <LinearLayout
-            android:layout_width="0dp"
-            android:layout_weight="1"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_input_bar"
-            android:gravity="center_vertical"
-            android:paddingStart="18dp"
-            android:paddingEnd="6dp"
-            android:minHeight="54dp">
-
-            <EditText
-                android:id="@+id/user_input"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:background="@null"
-                android:enabled="false"
-                android:maxLines="4"
-                android:paddingVertical="15dp"
-                android:textSize="15sp"
-                android:textColor="@color/on_surface"
-                android:textColorHint="@color/on_surface_muted"
-                android:textCursorDrawable="@null"
-                android:inputType="textCapSentences|textMultiLine"
-                android:hint="@string/ghost_input_hint" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <!-- Grab a frame for GHOST to reason about. Same action as System's Capture. -->
             <ImageButton
                 android:id="@+id/btn_capture_chat"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:enabled="false"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_camera"
                 android:scaleType="centerInside"
-                android:padding="10dp"
+                android:padding="9dp"
                 android:contentDescription="@string/ghost_capture"
                 app:tint="@color/on_surface_muted" />
-        </LinearLayout>
 
-        <!-- The one saturated object on the screen. -->
-        <ImageButton
-            android:id="@+id/fab"
-            android:layout_width="54dp"
-            android:layout_height="54dp"
-            android:layout_marginStart="10dp"
-            android:enabled="false"
-            android:background="@drawable/bg_send"
-            android:scaleType="centerInside"
-            android:padding="15dp"
-            android:contentDescription="@string/ghost_send"
-            android:src="@drawable/outline_send_24"
-            app:tint="@color/white" />
+            <!--
+              Which brain will answer, as a word rather than a tinted disc.
+
+              Claude puts the model name here and it is the most useful thing in the row: it tells
+              you what you are about to talk to before you talk to it. The same question matters
+              more here, because one of the two answers means the words leave the phone.
+            -->
+            <TextView
+                android:id="@+id/brain_pill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:background="@drawable/bg_brain_pill"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="8dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="@color/on_surface_variant"
+                android:contentDescription="@string/ghost_cloud" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <!-- Straight into Live, the way Claude's composer opens voice mode. -->
+            <ImageButton
+                android:id="@+id/btn_voice_chat"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_live"
+                android:scaleType="centerInside"
+                android:padding="9dp"
+                android:contentDescription="@string/ghost_nav_live"
+                app:tint="@color/on_surface_muted" />
+
+            <ImageButton
+                android:id="@+id/fab"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:enabled="false"
+                android:background="@drawable/bg_send"
+                android:scaleType="centerInside"
+                android:padding="10dp"
+                android:contentDescription="@string/ghost_send"
+                android:src="@drawable/outline_send_24"
+                app:tint="@color/on_accent" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

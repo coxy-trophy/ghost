@@ -1,35 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The empty transcript: one line, asked once.
+  The empty transcript: a mark, and one line under it, centred.
 
-  The orb used to live here, three hundred and thirty density-independent pixels of it, and it has
-  moved to Live where it belongs — a screen you open to talk to her, on a dark field it can read
-  against. On a light page above a text composer it was a graphic occupying the space the first
-  question should have.
+  Claude's resting screen is its asterisk and a sentence, sitting together in the middle of the page
+  with nothing else on it. This is the same arrangement with GHOST's spark and her own greeting. It
+  is centred rather than set flush left because there is nothing beside it to align to — a lone line
+  hard against the left margin reads as the first item of a list that never arrived.
 
   Still the transcript's first item rather than a separate empty state, so it scrolls away with the
-  conversation instead of being swapped out under you.
+  conversation instead of being swapped out under you. The tall top padding is what puts it near the
+  middle of an empty screen; once there are turns below, it becomes the space above the first one.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/chat_hero"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:gravity="start"
-    android:paddingHorizontal="20dp"
-    android:paddingTop="72dp"
-    android:paddingBottom="28dp">
+    android:gravity="center_horizontal"
+    android:paddingHorizontal="28dp"
+    android:paddingTop="150dp"
+    android:paddingBottom="40dp">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/ghost_greeting_sub"
-        style="@style/TextAppearance.Ghost.DisplaySub" />
+    <ImageView
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginBottom="14dp"
+        android:src="@drawable/ic_spark"
+        android:contentDescription="@null"
+        app:tint="@color/accent" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:gravity="center"
         android:text="@string/ghost_greeting"
         style="@style/TextAppearance.Ghost.Display" />
 </LinearLayout>

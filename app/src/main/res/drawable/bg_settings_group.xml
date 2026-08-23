@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A group of settings rows.
+
+  One rounded container holding several rows, the way the Claude app groups its settings, rather
+  than a bordered card per control. The container is what says these belong together; the rows
+  inside it need no borders of their own.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/surface_container" />
+    <corners android:radius="20dp" />
+</shape>

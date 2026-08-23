@@ -43,7 +43,14 @@ class MessageAdapter(
             val textView = holder.itemView.findViewById<TextView>(R.id.msg_content)
             // Rendered, not printed. Models emphasise with asterisks whether or not anything asked
             // them to, and the bubbles were showing the stars.
-            textView.text = com.coxy.ghost.ui.Markup.inline(message.content)
+            // The quote colour comes from the palette rather than from Markup, so a quoted line
+            // dims correctly in both light and dark instead of against one hardcoded ground.
+            textView.text = com.coxy.ghost.ui.Markup.render(
+                message.content,
+                androidx.core.content.ContextCompat.getColor(
+                    textView.context, com.coxy.ghost.R.color.on_surface_variant
+                )
+            )
         }
     }
 

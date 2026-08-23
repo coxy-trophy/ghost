@@ -96,4 +96,15 @@
     <string name="ghost_voice_off">Voice off</string>
     <string name="ghost_nav_open">Open navigation</string>
     <string name="ghost_version_fmt">v%1$s</string>
+    <string name="ghost_drawer_sensing">What she senses</string>
+    <string name="ghost_drawer_setup">Set up</string>
+    <string name="ghost_brain_cloud">Cloud</string>
+    <string name="ghost_brain_local">On device</string>
+    <string name="ghost_group_senses">What she can hear and see</string>
+    <string name="ghost_group_mind">How she thinks</string>
+    <string name="ghost_group_appearance">Appearance</string>
+    <string name="ghost_theme_light">Light</string>
+    <string name="ghost_theme_dark">Dark</string>
+    <string name="ghost_theme_system">System</string>
+    <string name="ghost_model">Model</string>
 </resources>

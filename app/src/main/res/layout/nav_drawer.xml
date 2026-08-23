@@ -1,49 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Where the five screens went.
+  Where the five screens went, organised the way the Claude app organises its own.
 
-  Every row keeps the id it had as a bottom tab — nav_chat, nav_chat_icon, nav_chat_label and so on
-  — so MainActivity's showTab() paints the current row without knowing the navigation changed shape
-  underneath it. The bar became a drawer; the wiring did not move.
+  Four things carry that arrangement, and none of them is decoration:
 
-  Ordered by how often it is actually opened rather than by importance: Chat and Live are the app,
-  Senses and Devices are things to check, System is where you go when something is wrong.
+    - A serif wordmark at the top, at heading scale, with nothing around it. No pill, no icon, no
+      status line crowding it — the drawer opens onto her name.
+    - Destinations as plain rows: icon, label, nothing else. The current one is marked by tint
+      alone. The filled lozenge that used to sit behind it belonged to a tab bar, where five items
+      compete in a small space and one has to win; in a list with room to breathe, colour is enough.
+    - Muted section headers grouping the rows by what they are for. Chat and Live are how you talk
+      to her and sit unlabelled at the top, because they need no explaining. Senses and Devices are
+      what she can see. System is where you go when something is wrong.
+    - A footer pinned to the bottom carrying state on the left and the primary action on the right.
+      Claude puts the account there and a New chat pill beside it. The equivalent here is not an
+      account — it is whether the daemon is actually up, and the one button that changes it.
 
   layout_gravity lives here rather than only on the <include>. DrawerLayout decides what is a drawer
   and what is content purely by that attribute, and an <include> does not reliably pass its own
   layout_gravity down to the root of the layout it pulls in — the result was not a broken drawer but
   a panel permanently welded across the left of every screen, with the content squeezed beside it and
   Back leaving the app because there was no open drawer to close.
+
+  The width here is a placeholder. MainActivity.setUpDrawerMotion() sets it to a fraction of the
+  screen, because "most of the phone" is a proportion and not a number of density pixels.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/nav_drawer"
-    android:layout_width="292dp"
+    android:layout_width="300dp"
     android:layout_height="match_parent"
     android:layout_gravity="start"
     android:orientation="vertical"
     android:background="@drawable/bg_drawer"
     android:fitsSystemWindows="true"
-    android:paddingHorizontal="12dp">
+    android:paddingHorizontal="14dp">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginTop="28dp"
-        android:layout_marginBottom="4dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginTop="22dp"
+        android:layout_marginBottom="20dp"
         android:text="@string/ghost_wordmark"
         style="@style/TextAppearance.Ghost.Display"
-        android:textSize="26sp" />
-
-    <TextView
-        android:id="@+id/drawer_subtitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginBottom="24dp"
-        android:text="@string/ghost_perception_idle"
-        style="@style/TextAppearance.Ghost.PillCaption" />
+        android:textSize="27sp" />
 
     <LinearLayout
         android:id="@+id/nav_chat"
@@ -78,6 +79,10 @@
             android:text="@string/ghost_nav_live" />
     </LinearLayout>
 
+    <TextView
+        style="@style/TextAppearance.Ghost.DrawerSection"
+        android:text="@string/ghost_drawer_sensing" />
+
     <LinearLayout
         android:id="@+id/nav_senses"
         style="@style/Widget.Ghost.DrawerRow">
@@ -110,6 +115,10 @@
             android:text="@string/ghost_nav_devices" />
     </LinearLayout>
 
+    <TextView
+        style="@style/TextAppearance.Ghost.DrawerSection"
+        android:text="@string/ghost_drawer_setup" />
+
     <LinearLayout
         android:id="@+id/nav_system"
         style="@style/Widget.Ghost.DrawerRow">
@@ -131,14 +140,57 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
-    <!-- What is actually installed. Cheap to show, and the first thing worth knowing when a deploy
-         is suspected of not having landed. -->
-    <TextView
-        android:id="@+id/drawer_version"
-        android:layout_width="wrap_content"
+    <!--
+      The footer. State on the left, the one action that changes it on the right.
+
+      This is the only place in the app where whether GHOST is running and the button that starts
+      her sit next to each other. It used to take opening System to find out and a second look to
+      act on it.
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginBottom="20dp"
-        style="@style/TextAppearance.Ghost.PillCaption" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="10dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="18dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/drawer_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/ghost_perception_idle"
+                style="@style/TextAppearance.Ghost.PillCaption"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/drawer_version"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                style="@style/TextAppearance.Ghost.PillCaption" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/drawer_power"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_drawer_pill"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="12dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:textColor="@color/on_accent"
+            android:textSize="15sp"
+            android:fontFamily="sans-serif-medium"
+            android:text="@string/ghost_start" />
+    </LinearLayout>
 
 </LinearLayout>

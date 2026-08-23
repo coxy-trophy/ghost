@@ -1,67 +1,81 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Every configuration lives here. The chat and live screens carry none. -->
+<!--
+  System, arranged the way the Claude app arranges its settings.
+
+  What was here before was five bordered cards, each with a title, a sentence of explanation, and one
+  or two full-width buttons inside it. Every control was the same size and shouted equally, so
+  Personality — a dialog you open twice a year — was as loud as Start, which is the one thing on the
+  screen that matters when GHOST is down.
+
+  This is the same set of controls with a hierarchy:
+
+    - The state, and the one button that changes it, in a block at the top. It says what she is
+      doing and what would happen if you pressed it, in that order.
+    - Everything else as rows in grouped, rounded containers under muted headers. A row is an icon,
+      a label and a chevron; the chevron means a dialog opens, which is what all of these do.
+    - Explanatory sentences removed. "Off-device processing for complex queries, with a privacy
+      filter" was describing what the Cloud dialog contains to somebody who has not opened it yet.
+      The dialog explains itself, and the row only has to be findable.
+
+  The ids are unchanged, so MainActivity's wiring is untouched. The rows are still Buttons, because
+  MainActivity holds them as android.widget.Button and finds them by id — but they are spelled
+  androidx.appcompat.widget.AppCompatButton rather than <Button>, and that is not a style choice.
+
+  Under a Material3 theme, MaterialComponentsViewInflater quietly swaps every <Button> in every
+  layout for a MaterialButton. MaterialButton ignores android:drawableStart and android:drawableEnd
+  in favour of its own single app:icon — so the icons and chevrons here simply never appeared, with
+  no warning and no error, and switching them from app:drawableStartCompat to android:drawableStart
+  changed nothing because neither was ever being read. One icon per button would also not be enough:
+  a row needs a glyph at one end and a chevron at the other. Naming the AppCompat widget explicitly
+  is what opts out of the substitution. Start and Stop stay plain <Button> — they want the
+  MaterialButton pill and carry no icons.
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/screen_system"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:visibility="gone"
     android:scrollbars="none"
-    android:overScrollMode="never">
+    android:overScrollMode="never"
+    android:clipToPadding="false"
+    android:paddingBottom="24dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingHorizontal="16dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="20dp">
+        android:paddingHorizontal="14dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/ghost_system_title"
-            android:textColor="@color/accent"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
-            android:text="@string/ghost_system_subtitle"
-            style="@style/TextAppearance.Ghost.Mono" />
-
-        <!-- ── Runtime ─────────────────────────────────────────── -->
+        <!-- ── The daemon ─────────────────────────────────────────────── -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/bg_card"
-            android:padding="18dp">
+            android:background="@drawable/bg_settings_group"
+            android:layout_marginTop="16dp"
+            android:padding="20dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/ghost_sec_runtime"
-                style="@style/TextAppearance.Ghost.Label"
-                android:textColor="@color/accent" />
+                android:text="@string/ghost_wordmark"
+                style="@style/TextAppearance.Ghost.SectionTitle"
+                android:textSize="17sp" />
 
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:layout_marginVertical="12dp" android:background="@color/divider" />
-
+            <!-- Running state, engine state and which weights are loaded, in one line. -->
             <TextView
                 android:id="@+id/gguf"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:text="@string/ghost_status_idle"
-                style="@style/TextAppearance.Ghost.Mono" />
+                android:layout_marginTop="4dp"
+                style="@style/TextAppearance.Ghost.Mono"
+                android:textSize="12sp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:layout_marginTop="16dp">
 
                 <Button
                     android:id="@+id/btn_start"
@@ -69,7 +83,6 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:enabled="false"
                     android:text="@string/ghost_start" />
 
                 <Button
@@ -79,153 +92,115 @@
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="10dp"
-                    android:enabled="false"
                     android:text="@string/ghost_stop" />
             </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="10dp">
-
-                <Button
-                    android:id="@+id/btn_mic"
-                    style="@style/Widget.Ghost.Outline"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:enabled="false"
-                    android:text="@string/ghost_mic_on" />
-
-                <Button
-                    android:id="@+id/btn_capture"
-                    style="@style/Widget.Ghost.Outline"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:enabled="false"
-                    android:text="@string/ghost_capture" />
-            </LinearLayout>
-
-            <!-- Her voice. Beside the mic on purpose: one button per channel, in and out. -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="10dp">
-
-                <Button
-                    android:id="@+id/btn_voice"
-                    style="@style/Widget.Ghost.Outline"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ghost_voice_on" />
-            </LinearLayout>
         </LinearLayout>
 
-        <!-- ── Behaviour ───────────────────────────────────────── -->
+        <!-- ── What she can hear and see ──────────────────────────────── -->
+        <TextView
+            style="@style/TextAppearance.Ghost.GroupHeader"
+            android:text="@string/ghost_group_senses" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/bg_card"
-            android:layout_marginTop="14dp"
-            android:padding="18dp">
+            android:background="@drawable/bg_settings_group">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/ghost_sec_behaviour"
-                style="@style/TextAppearance.Ghost.Label"
-                android:textColor="@color/accent" />
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_mic"
+                style="@style/Widget.Ghost.Row"
+                android:enabled="false"
+                android:text="@string/ghost_mic_off"
+                android:drawableStart="@drawable/ic_mic" />
 
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:layout_marginVertical="12dp" android:background="@color/divider" />
+            <View style="@style/Widget.Ghost.RowDivider" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:text="@string/ghost_sec_behaviour_desc"
-                style="@style/TextAppearance.Ghost.Mono" />
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_capture"
+                style="@style/Widget.Ghost.Row"
+                android:enabled="false"
+                android:text="@string/ghost_capture"
+                android:drawableStart="@drawable/ic_camera" />
 
-            <Button
+            <View style="@style/Widget.Ghost.RowDivider" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_voice"
+                style="@style/Widget.Ghost.Row"
+                android:text="@string/ghost_voice_on"
+                android:drawableStart="@drawable/ic_live"
+                android:drawableEnd="@drawable/ic_chevron" />
+        </LinearLayout>
+
+        <!-- ── How she thinks ─────────────────────────────────────────── -->
+        <TextView
+            style="@style/TextAppearance.Ghost.GroupHeader"
+            android:text="@string/ghost_group_mind" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_settings_group">
+
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btn_personality"
-                style="@style/Widget.Ghost.Outline"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/ghost_personality" />
-        </LinearLayout>
+                style="@style/Widget.Ghost.Row"
+                android:text="@string/ghost_personality"
+                android:drawableStart="@drawable/ic_spark"
+                android:drawableEnd="@drawable/ic_chevron" />
 
-        <!-- ── External compute ────────────────────────────────── -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@drawable/bg_card"
-            android:layout_marginTop="14dp"
-            android:padding="18dp">
+            <View style="@style/Widget.Ghost.RowDivider" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/ghost_sec_cloud"
-                style="@style/TextAppearance.Ghost.Label"
-                android:textColor="@color/accent" />
-
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:layout_marginVertical="12dp" android:background="@color/divider" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:text="@string/ghost_sec_cloud_desc"
-                style="@style/TextAppearance.Ghost.Mono" />
-
-            <Button
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btn_cloud"
-                style="@style/Widget.Ghost.Outline"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/ghost_cloud" />
+                style="@style/Widget.Ghost.Row"
+                android:text="@string/ghost_cloud"
+                android:drawableStart="@drawable/ic_senses"
+                android:drawableEnd="@drawable/ic_chevron" />
+
+            <View style="@style/Widget.Ghost.RowDivider" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_pick"
+                style="@style/Widget.Ghost.Row"
+                android:text="@string/ghost_model"
+                android:drawableStart="@drawable/outline_folder_open_24"
+                android:drawableEnd="@drawable/ic_chevron" />
         </LinearLayout>
 
-        <!-- ── Local inference core ────────────────────────────── -->
+        <!-- ── Appearance ─────────────────────────────────────────────── -->
+        <TextView
+            style="@style/TextAppearance.Ghost.GroupHeader"
+            android:text="@string/ghost_group_appearance" />
+
+        <!--
+          Light, dark or whatever the phone is doing. Three buttons rather than a row that opens a
+          dialog, because there are only three answers and the whole control fits in the space the
+          row would have taken.
+        -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@drawable/bg_card"
-            android:layout_marginTop="14dp"
-            android:padding="18dp">
+            android:orientation="horizontal"
+            android:background="@drawable/bg_settings_group"
+            android:padding="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/ghost_sec_core"
-                style="@style/TextAppearance.Ghost.Label"
-                android:textColor="@color/accent" />
-
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:layout_marginVertical="12dp" android:background="@color/divider" />
+                android:id="@+id/theme_light"
+                style="@style/Widget.Ghost.ThemeChoice"
+                android:text="@string/ghost_theme_light" />
 
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="@string/ghost_active_weights"
-                style="@style/TextAppearance.Ghost.Label" />
+                android:id="@+id/theme_dark"
+                style="@style/Widget.Ghost.ThemeChoice"
+                android:text="@string/ghost_theme_dark" />
 
-            <Button
-                android:id="@+id/btn_pick"
-                style="@style/Widget.Ghost.Outline"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/ghost_pick_model" />
+            <TextView
+                android:id="@+id/theme_system"
+                style="@style/Widget.Ghost.ThemeChoice"
+                android:text="@string/ghost_theme_system" />
         </LinearLayout>
     </LinearLayout>
 </ScrollView>
