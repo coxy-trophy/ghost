@@ -6,8 +6,20 @@
 # means: replace the APK inside the Magisk module, then reboot so the module remounts it and
 # PackageManager rescans.
 #
-# The native libs under lib/arm64/ are only rebuilt when :lib changes. Kotlin-only changes reuse
-# them, so this script leaves them alone by default (--libs re-extracts them).
+# The module's lib/arm64/ is a separate copy from the APK's, so it only changes when told to
+# (--libs re-extracts it). Leaving it alone is right for a pure Kotlin change against unchanged
+# native code, and wrong the moment a dependency brings native code with it.
+#
+# That distinction is not "did :lib change". Adding the sherpa-onnx AAR on 2026-08-23 was a
+# Kotlin-only change by that test, and it added four .so files — libonnxruntime.so and three
+# libsherpa-onnx-*.so. Deploying without --libs would have installed a Piper voice whose JNI
+# library simply was not there. Compare before deciding:
+#
+#   unzip -l app/build/outputs/apk/debug/app-debug.apk 'lib/arm64-v8a/*' | grep -c '\.so$'
+#   adb shell "su -c 'ls /data/adb/modules/ghost_systemapp/system/priv-app/GHOST/lib/arm64/*.so | wc -l'"
+#
+# If the counts differ, --libs is required. --libs is also always safe: it re-extracts every lib
+# from the APK, so it can only ever be a superset of what is there.
 #
 # Replacing the priv-app APK can reset /data/data/com.coxy.ghost entirely. Observed 2026-08-12: a
 # deploy wiped the Ollama API key, the persisted model path, and the whole memory DB (turns,
@@ -68,7 +80,29 @@ echo "Local md5:  $LOCAL_MD5"
 echo "Installed:  $($ADB shell "dumpsys package $PKG | grep -E 'versionCode|versionName' | head -2" | tr -d '\r' | tr '\n' ' ')"
 echo
 
-# --- 0. Back up app data BEFORE touching the module (see the header note) ---
+# --- 0a. Refuse to ship an APK whose native libs the module does not have ---
+#
+# The failure this prevents is silent: the APK installs, the app starts, and one feature dies at
+# the moment it first calls into a .so that was never copied. Counting is enough to catch it —
+# a new dependency with native code always changes the count.
+APK_LIBS=$(unzip -l "$APK" 'lib/arm64-v8a/*' 2>/dev/null | grep -c '\.so$')
+MOD_LIBS=$($ADB shell "su -c 'ls $MODULE/lib/arm64/*.so 2>/dev/null | wc -l'" | tr -d '\r' | tr -d ' ')
+if [ "$APK_LIBS" != "$MOD_LIBS" ]; then
+  echo "Native libs: APK has $APK_LIBS, module has $MOD_LIBS."
+  if [ "$DO_LIBS" = "0" ]; then
+    echo
+    echo "The module is missing native libraries this APK expects. Deploying now would install an"
+    echo "app that starts fine and then fails the first time it touches the missing library."
+    echo "Re-run with --libs."
+    exit 1
+  fi
+  echo "  --libs given, so they will be replaced."
+else
+  echo "Native libs: $APK_LIBS in both."
+fi
+echo
+
+# --- 0b. Back up app data BEFORE touching the module (see the header note) ---
 if [ "$DO_BACKUP" = "1" ]; then
   echo "Backing up app data..."
   BK_PATHS=""
