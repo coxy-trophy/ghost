@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Coxy's turn: the accent wash, mirrored to the right. -->
+<!--
+  What Coxy said, as a quiet raised block.
+
+  No stroke and no accent. The bubble's job is to mark a change of speaker, and it only has to be
+  different from the page — not louder than the words in it. Her replies have no bubble at all, so
+  this is the only container in the transcript and it can afford to be almost invisible.
+-->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/accent_wash" />
-    <stroke android:width="1dp" android:color="@color/accent_deep" />
-    <corners android:radius="20dp" android:bottomRightRadius="6dp" />
+    <solid android:color="@color/surface_container" />
+    <corners android:radius="18dp" />
 </shape>

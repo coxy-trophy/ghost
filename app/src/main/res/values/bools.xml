@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Dark icons in the status and gesture bars, because the page behind them is now paper.
+
+      A bool rather than a second copy of the theme in values-night/: the only thing that differs
+      between the two modes at theme level is this polarity, and duplicating a thirteen-item style
+      to flip one flag is how the two copies drift apart.
+    -->
+    <bool name="light_system_bars">true</bool>
+</resources>

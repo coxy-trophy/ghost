@@ -94,4 +94,6 @@
     <string name="ghost_devices_here">on this network now</string>
     <string name="ghost_voice_on">Her voice</string>
     <string name="ghost_voice_off">Voice off</string>
+    <string name="ghost_nav_open">Open navigation</string>
+    <string name="ghost_version_fmt">v%1$s</string>
 </resources>

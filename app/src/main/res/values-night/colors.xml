@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      "Paper", after dark. Every name here also exists in values/colors.xml; only the values differ,
+      so no layout or drawable ever asks which mode it is in.
+
+      Near-black rather than the true #000000 this app used to be. True black is the better power
+      story on an AMOLED daemon, but it also removes every cue that a surface is a surface: at #000
+      a card and the page are the same pixel, and the only way to tell them apart is a border on
+      everything, which is the chrome this redesign is removing. #0F0F0F costs almost nothing and
+      buys back the ability to raise something by lightening it.
+
+      The exception is Live. That screen keeps its own near-void field in both modes, defined at the
+      bottom of both files with the same value, because the orb only reads against dark.
+
+      Warm, not blue. The greys carry a trace of the same warmth as the light palette so the two
+      modes read as one app seen under different light, rather than two themes.
+    -->
+
+    <!-- Base -->
+    <color name="abyss">#FF0F0F0E</color>
+    <color name="surface">#FF171716</color>
+    <color name="surface_container">#FF1F1F1D</color>
+    <color name="surface_high">#FF2A2A27</color>
+
+    <!-- Chrome, as a tint of the light rather than a darker panel -->
+    <color name="glass_fill">#0AFFFFFF</color>
+    <color name="glass_fill_hover">#17FFFFFF</color>
+    <color name="glass_border">#1FFFFFFF</color>
+    <color name="glass_border_bright">#33FFFFFF</color>
+    <color name="divider">#14FFFFFF</color>
+
+    <!-- The heat ramp: cool is the local brain, hot is the cloud -->
+    <color name="cool">#FF8FA0C0</color>
+    <color name="accent">#FFD98A66</color>
+    <color name="accent_dim">#FFBE7150</color>
+    <color name="accent_deep">#FF7A4632</color>
+    <color name="accent_soft">#FFE8C4B0</color>
+    <color name="accent_hot">#FFE0754D</color>
+    <color name="ember">#FFD9603F</color>
+    <color name="amber">#FFE0A05C</color>
+
+    <!-- Accent washes, for glows and active fills -->
+    <color name="accent_glow">#33D98A66</color>
+    <color name="accent_wash">#1AD98A66</color>
+    <color name="ember_wash">#26D9603F</color>
+
+    <!-- Type -->
+    <color name="on_surface">#FFECEAE3</color>
+    <color name="on_surface_variant">#FFA8A49B</color>
+    <color name="on_surface_muted">#FF6E6A62</color>
+    <color name="on_accent">#FF1A1108</color>
+
+    <!-- State -->
+    <color name="state_live">#FFD98A66</color>
+    <color name="state_idle">#FF6E6A62</color>
+    <color name="state_error">#FFE08070</color>
+
+    <!-- Live's field. Same value as the light file, on purpose — see the note there. -->
+    <color name="live_field">#FF0B0B0C</color>
+    <color name="on_live_field">#FFF2F0F5</color>
+    <color name="on_live_field_muted">#FF8A8792</color>
+    <color name="live_accent">#FFE8C4B0</color>
+
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

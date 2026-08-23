@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Where the five screens went.
+
+  Every row keeps the id it had as a bottom tab — nav_chat, nav_chat_icon, nav_chat_label and so on
+  — so MainActivity's showTab() paints the current row without knowing the navigation changed shape
+  underneath it. The bar became a drawer; the wiring did not move.
+
+  Ordered by how often it is actually opened rather than by importance: Chat and Live are the app,
+  Senses and Devices are things to check, System is where you go when something is wrong.
+
+  layout_gravity lives here rather than only on the <include>. DrawerLayout decides what is a drawer
+  and what is content purely by that attribute, and an <include> does not reliably pass its own
+  layout_gravity down to the root of the layout it pulls in — the result was not a broken drawer but
+  a panel permanently welded across the left of every screen, with the content squeezed beside it and
+  Back leaving the app because there was no open drawer to close.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_drawer"
+    android:layout_width="292dp"
+    android:layout_height="match_parent"
+    android:layout_gravity="start"
+    android:orientation="vertical"
+    android:background="@drawable/bg_drawer"
+    android:fitsSystemWindows="true"
+    android:paddingHorizontal="12dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="28dp"
+        android:layout_marginBottom="4dp"
+        android:text="@string/ghost_wordmark"
+        style="@style/TextAppearance.Ghost.Display"
+        android:textSize="26sp" />
+
+    <TextView
+        android:id="@+id/drawer_subtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginBottom="24dp"
+        android:text="@string/ghost_perception_idle"
+        style="@style/TextAppearance.Ghost.PillCaption" />
+
+    <LinearLayout
+        android:id="@+id/nav_chat"
+        style="@style/Widget.Ghost.DrawerRow">
+
+        <ImageView
+            android:id="@+id/nav_chat_icon"
+            style="@style/Widget.Ghost.DrawerRowIcon"
+            android:src="@drawable/ic_chat"
+            app:tint="@color/accent" />
+
+        <TextView
+            android:id="@+id/nav_chat_label"
+            style="@style/Widget.Ghost.DrawerRowLabel"
+            android:text="@string/ghost_nav_chat"
+            android:textColor="@color/accent" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/nav_live"
+        style="@style/Widget.Ghost.DrawerRow">
+
+        <ImageView
+            android:id="@+id/nav_live_icon"
+            style="@style/Widget.Ghost.DrawerRowIcon"
+            android:src="@drawable/ic_live"
+            app:tint="@color/on_surface_muted" />
+
+        <TextView
+            android:id="@+id/nav_live_label"
+            style="@style/Widget.Ghost.DrawerRowLabel"
+            android:text="@string/ghost_nav_live" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/nav_senses"
+        style="@style/Widget.Ghost.DrawerRow">
+
+        <ImageView
+            android:id="@+id/nav_senses_icon"
+            style="@style/Widget.Ghost.DrawerRowIcon"
+            android:src="@drawable/ic_senses"
+            app:tint="@color/on_surface_muted" />
+
+        <TextView
+            android:id="@+id/nav_senses_label"
+            style="@style/Widget.Ghost.DrawerRowLabel"
+            android:text="@string/ghost_nav_senses" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/nav_devices"
+        style="@style/Widget.Ghost.DrawerRow">
+
+        <ImageView
+            android:id="@+id/nav_devices_icon"
+            style="@style/Widget.Ghost.DrawerRowIcon"
+            android:src="@drawable/ic_devices"
+            app:tint="@color/on_surface_muted" />
+
+        <TextView
+            android:id="@+id/nav_devices_label"
+            style="@style/Widget.Ghost.DrawerRowLabel"
+            android:text="@string/ghost_nav_devices" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/nav_system"
+        style="@style/Widget.Ghost.DrawerRow">
+
+        <ImageView
+            android:id="@+id/nav_system_icon"
+            style="@style/Widget.Ghost.DrawerRowIcon"
+            android:src="@drawable/ic_system"
+            app:tint="@color/on_surface_muted" />
+
+        <TextView
+            android:id="@+id/nav_system_label"
+            style="@style/Widget.Ghost.DrawerRowLabel"
+            android:text="@string/ghost_nav_system" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- What is actually installed. Cheap to show, and the first thing worth knowing when a deploy
+         is suspected of not having landed. -->
+    <TextView
+        android:id="@+id/drawer_version"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginBottom="20dp"
+        style="@style/TextAppearance.Ghost.PillCaption" />
+
+</LinearLayout>

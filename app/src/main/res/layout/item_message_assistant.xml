@@ -1,27 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  GHOST speaking. No bubble, no label, no container.
+
+  This is the single change that decides whether the app reads as a chat client or as something
+  being written to you. A bubble frames text as a message in a thread; the same words set plain on
+  the page read as a voice. She is the reason the app exists and her replies are usually the longest
+  thing on screen, so they get the page and everything else arranges around them.
+
+  The old row put "GHOST" under every reply. With only two speakers and one of them bubbled, the
+  label was restating what the layout already said.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:layout_marginHorizontal="16dp"
-    android:layout_marginVertical="7dp"
-    android:gravity="start">
+    android:layout_marginHorizontal="20dp"
+    android:layout_marginTop="10dp"
+    android:layout_marginBottom="18dp">
 
     <TextView
         android:id="@+id/msg_content"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:maxWidth="290dp"
-        android:background="@drawable/bg_assistant_message"
-        android:paddingHorizontal="16dp"
-        android:paddingVertical="13dp"
-        style="@style/TextAppearance.Ghost.Body"
+        style="@style/TextAppearance.Ghost.Reply"
         android:textIsSelectable="true" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
-        android:text="@string/ghost_speaker_ghost"
-        style="@style/TextAppearance.Ghost.Label" />
 </LinearLayout>

@@ -1,76 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Four screens behind one nav. All four are inflated up front and swapped by visibility rather than
-  by Fragments: MainActivity finds its views once in onCreate and the existing wiring keeps working
-  untouched, which is worth more here than lazy inflation of three small layouts.
+  Five screens behind one drawer.
 
-  Nothing in this shell sits on a panel. The bars are glass discs and pills floating over the void,
-  with no dividers and no filled footer, so the black is continuous from the status bar to the
-  gesture bar and the screens read as depth rather than as pages.
+  All five are still inflated up front and swapped by visibility rather than by Fragments, exactly
+  as before: MainActivity finds its views once in onCreate and the existing wiring keeps working.
+  What changed is how you reach them. A five-icon bar across the bottom gave Chat a fifth of the
+  furniture and said, permanently, that talking to GHOST is one of five equal things. It is not —
+  it is the app, and the other four are places you go occasionally to check on her.
+
+  The top bar is three objects and no containers: a hamburger, her name, and which brain is
+  answering. The glass discs and the pill they used to sit in are gone. On a page this quiet a
+  bordered disc around an icon is louder than the icon.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.drawerlayout.widget.DrawerLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/main"
+    android:id="@+id/drawer_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@color/abyss"
     android:fitsSystemWindows="true">
 
-    <!-- Top bar. The side controls are fixed-width discs and the identity pill is centred in the
-         full width, so the pill does not shift when the status text under it changes length. -->
-    <FrameLayout
+    <!-- ── The screen ─────────────────────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/main"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingHorizontal="16dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="6dp">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:background="@color/abyss">
 
-        <ImageButton
-            android:id="@+id/btn_top_menu"
-            android:layout_width="46dp"
-            android:layout_height="46dp"
-            android:layout_gravity="start|center_vertical"
-            android:background="@drawable/bg_glass_circle"
-            android:src="@drawable/ic_grid"
-            android:scaleType="centerInside"
-            android:padding="13dp"
-            android:contentDescription="@string/ghost_nav_system"
-            app:tint="@color/on_surface_variant" />
+        <FrameLayout
+            android:id="@+id/top_bar"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:paddingHorizontal="8dp">
 
-        <!--
-          The identity pill. Dola's says what the app is; this one says whether GHOST is actually
-          up and what she is sensing, because that is the question this project keeps having to
-          answer at a glance — a daemon that silently died looks exactly like one that is idle.
-        -->
-        <LinearLayout
-            android:id="@+id/identity_pill"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_identity_pill"
-            android:paddingStart="8dp"
-            android:paddingEnd="20dp"
-            android:paddingVertical="7dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:contentDescription="@string/ghost_nav_senses">
+            <ImageButton
+                android:id="@+id/btn_top_menu"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="start|center_vertical"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_menu"
+                android:scaleType="centerInside"
+                android:padding="10dp"
+                android:contentDescription="@string/ghost_nav_open"
+                app:tint="@color/on_surface_variant" />
 
-            <ImageView
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:src="@drawable/ic_spark"
-                android:contentDescription="@null"
-                android:padding="4dp"
-                app:tint="@color/accent" />
+            <!--
+              Her name and, under it, whether she is actually up.
 
+              Kept from the old identity pill because the question it answers has not changed — a
+              daemon that silently died looks exactly like one that is idle — but without the pill.
+              The status dot carries the state and the words underneath say what she is sensing.
+            -->
             <LinearLayout
+                android:id="@+id/identity_pill"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="9dp"
-                android:orientation="vertical">
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/ghost_nav_senses">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -86,9 +82,9 @@
 
                     <View
                         android:id="@+id/status_dot"
-                        android:layout_width="6dp"
-                        android:layout_height="6dp"
-                        android:layout_marginEnd="6dp"
+                        android:layout_width="5dp"
+                        android:layout_height="5dp"
+                        android:layout_marginEnd="5dp"
                         android:background="@drawable/bg_status_dot" />
 
                     <TextView
@@ -100,191 +96,39 @@
                         style="@style/TextAppearance.Ghost.PillCaption" />
                 </LinearLayout>
             </LinearLayout>
-        </LinearLayout>
 
-        <!--
-          Which brain is answering, as a control rather than a readout: it is tinted from the same
-          ramp as the orb, and tapping it opens the cloud settings that decide the answer.
-        -->
-        <ImageButton
-            android:id="@+id/btn_top_brain"
-            android:layout_width="46dp"
-            android:layout_height="46dp"
-            android:layout_gravity="end|center_vertical"
-            android:background="@drawable/bg_glass_circle"
-            android:src="@drawable/ic_spark"
-            android:scaleType="centerInside"
-            android:padding="13dp"
-            android:contentDescription="@string/ghost_cloud"
-            app:tint="@color/on_surface_variant" />
-    </FrameLayout>
+            <!-- Which brain is answering, as a control: tapping it opens the cloud settings. -->
+            <ImageButton
+                android:id="@+id/btn_top_brain"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="end|center_vertical"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_spark"
+                android:scaleType="centerInside"
+                android:padding="11dp"
+                android:contentDescription="@string/ghost_cloud"
+                app:tint="@color/on_surface_variant" />
+        </FrameLayout>
 
-    <!-- Screens -->
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
 
-        <include layout="@layout/content_chat" />
-        <include layout="@layout/content_live" />
-        <include layout="@layout/content_system" />
-        <include layout="@layout/content_perception" />
-        <include layout="@layout/content_devices" />
-    </FrameLayout>
-
-    <!-- Bottom nav: one floating glass pill, no rule above it and no filled footer behind it. -->
-    <LinearLayout
-        android:id="@+id/nav_bar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginTop="4dp"
-        android:layout_marginBottom="10dp"
-        android:orientation="horizontal"
-        android:background="@drawable/bg_nav_bar"
-        android:padding="5dp">
-
-        <LinearLayout
-            android:id="@+id/nav_chat"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:paddingHorizontal="13dp"
-            android:paddingVertical="9dp"
-            android:background="@drawable/bg_nav_active"
-            android:clickable="true"
-            android:focusable="true">
-
-            <ImageView
-                android:id="@+id/nav_chat_icon"
-                android:layout_width="21dp"
-                android:layout_height="21dp"
-                android:src="@drawable/ic_chat"
-                android:contentDescription="@null"
-                app:tint="@color/accent" />
-
-            <TextView
-                android:id="@+id/nav_chat_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/ghost_nav_chat"
-                style="@style/TextAppearance.Ghost.NavLabel"
-                android:textColor="@color/accent" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/nav_live"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:paddingHorizontal="13dp"
-            android:paddingVertical="9dp"
-            android:clickable="true"
-            android:focusable="true">
-
-            <ImageView
-                android:id="@+id/nav_live_icon"
-                android:layout_width="21dp"
-                android:layout_height="21dp"
-                android:src="@drawable/ic_live"
-                android:contentDescription="@null"
-                app:tint="@color/on_surface_muted" />
-
-            <TextView
-                android:id="@+id/nav_live_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/ghost_nav_live"
-                style="@style/TextAppearance.Ghost.NavLabel" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/nav_senses"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:paddingHorizontal="13dp"
-            android:paddingVertical="9dp"
-            android:clickable="true"
-            android:focusable="true">
-
-            <ImageView
-                android:id="@+id/nav_senses_icon"
-                android:layout_width="21dp"
-                android:layout_height="21dp"
-                android:src="@drawable/ic_senses"
-                android:contentDescription="@null"
-                app:tint="@color/on_surface_muted" />
-
-            <TextView
-                android:id="@+id/nav_senses_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/ghost_nav_senses"
-                style="@style/TextAppearance.Ghost.NavLabel" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/nav_devices"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:paddingHorizontal="13dp"
-            android:paddingVertical="9dp"
-            android:clickable="true"
-            android:focusable="true">
-
-            <ImageView
-                android:id="@+id/nav_devices_icon"
-                android:layout_width="21dp"
-                android:layout_height="21dp"
-                android:src="@drawable/ic_devices"
-                android:contentDescription="@null"
-                app:tint="@color/on_surface_muted" />
-
-            <TextView
-                android:id="@+id/nav_devices_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/ghost_nav_devices"
-                style="@style/TextAppearance.Ghost.NavLabel" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/nav_system"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:paddingHorizontal="13dp"
-            android:paddingVertical="9dp"
-            android:clickable="true"
-            android:focusable="true">
-
-            <ImageView
-                android:id="@+id/nav_system_icon"
-                android:layout_width="21dp"
-                android:layout_height="21dp"
-                android:src="@drawable/ic_system"
-                android:contentDescription="@null"
-                app:tint="@color/on_surface_muted" />
-
-            <TextView
-                android:id="@+id/nav_system_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/ghost_nav_system"
-                style="@style/TextAppearance.Ghost.NavLabel" />
-        </LinearLayout>
+            <include layout="@layout/content_chat" />
+            <include layout="@layout/content_live" />
+            <include layout="@layout/content_system" />
+            <include layout="@layout/content_perception" />
+            <include layout="@layout/content_devices" />
+        </FrameLayout>
     </LinearLayout>
-</LinearLayout>
+
+    <!-- ── The drawer ─────────────────────────────────────────────────── -->
+    <include
+        layout="@layout/nav_drawer"
+        android:layout_width="292dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start" />
+
+</androidx.drawerlayout.widget.DrawerLayout>

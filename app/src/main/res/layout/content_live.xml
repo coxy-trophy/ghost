@@ -19,6 +19,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/screen_live"
+    android:background="@color/live_field"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:visibility="gone">
@@ -58,7 +59,7 @@
             android:layout_height="wrap_content"
             android:text="@string/ghost_live_idle"
             style="@style/TextAppearance.Ghost.Label"
-            android:textColor="@color/accent_soft"
+            android:textColor="@color/live_accent"
             android:textSize="11sp" />
 
         <!--
@@ -74,7 +75,7 @@
             android:gravity="center"
             android:maxLines="3"
             android:ellipsize="end"
-            android:textColor="@color/on_surface"
+            android:textColor="@color/on_live_field"
             android:textSize="22sp"
             android:fontFamily="sans-serif-medium"
             android:lineSpacingExtra="2dp"
@@ -93,7 +94,7 @@
             android:gravity="center"
             android:maxLines="4"
             android:ellipsize="end"
-            android:textColor="@color/on_surface_variant"
+            android:textColor="@color/on_live_field_muted"
             android:textSize="15sp"
             android:lineSpacingExtra="3dp" />
 
@@ -123,7 +124,7 @@
                 android:src="@drawable/ic_mic_off"
                 android:scaleType="centerInside"
                 android:padding="15dp"
-                app:tint="@color/on_surface_variant" />
+                app:tint="@color/on_live_field_muted" />
 
             <Space
                 android:layout_width="0dp"
@@ -162,7 +163,7 @@
                 android:src="@drawable/ic_close"
                 android:scaleType="centerInside"
                 android:padding="15dp"
-                app:tint="@color/on_surface_variant" />
+                app:tint="@color/on_live_field_muted" />
         </LinearLayout>
 
         <TextView
@@ -173,7 +174,7 @@
             android:layout_marginBottom="10dp"
             android:text="@string/ghost_ptt_hold"
             style="@style/TextAppearance.Ghost.Label"
-            android:textColor="@color/on_surface_muted"
+            android:textColor="@color/on_live_field_muted"
             android:textSize="11sp" />
     </LinearLayout>
 </FrameLayout>

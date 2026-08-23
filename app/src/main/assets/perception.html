@@ -5,25 +5,55 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>GHOST — Senses</title>
 <style>
-  /* Obsidian Futurism, straight from the app's colors.xml so this screen is part of the app
-     rather than a web page embedded in it. True black base: black pixels are off pixels. */
+  /* Straight from the app's colors.xml, so this screen is part of the app rather than a web page
+     embedded in it — which means it now has to follow the phone like everything else.
+
+     The variable names are kept (--obsidian is the page, --cyan is the accent) so the two hundred
+     lines of markup below did not have to be rewritten to change the palette. What they hold is
+     new: paper and terracotta by day, near-black and warm by night.
+
+     prefers-color-scheme works here without any WebView configuration because the app targets SDK
+     36, where WebView resolves the media query from the theme's android:isLightTheme — which the
+     DayNight parent already sets correctly in both modes.
+
+     Monospace stays. This screen is an instrument panel quoting the [CONTEXT] block verbatim, and
+     that is a different voice from the rest of the app on purpose. The cyan is what had to go: a
+     saturated terminal green-blue was the one colour in the app belonging to no palette at all. */
   :root {
-    --obsidian:   #000000;
-    --surface:    #0B0F10;
-    --container:  #14181A;
-    --high:       #1D2022;
-    --glass:      rgba(255,255,255,.03);
-    --border:     rgba(255,255,255,.10);
-    --divider:    rgba(255,255,255,.05);
-    --cyan:       #00F0FF;
-    --cyan-wash:  rgba(0,240,255,.08);
-    --cyan-deep:  #006970;
-    --ink:        #E0E3E5;
-    --ink-var:    #B9CACB;
-    --ink-mut:    #849495;
-    --error:      #FFB4AB;
+    --obsidian:   #FAF9F5;
+    --surface:    #F5F3EE;
+    --container:  #F0EDE5;
+    --high:       #E8E4DA;
+    --glass:      rgba(0,0,0,.03);
+    --border:     rgba(0,0,0,.10);
+    --divider:    rgba(0,0,0,.06);
+    --cyan:       #B85C38;
+    --cyan-wash:  rgba(184,92,56,.08);
+    --cyan-deep:  #8A4127;
+    --ink:        #2B2B28;
+    --ink-var:    #66635C;
+    --ink-mut:    #97928A;
+    --error:      #B3402F;
     --mono: ui-monospace, "Roboto Mono", Menlo, Consolas, monospace;
     --sans: system-ui, "Roboto", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --obsidian:   #0F0F0E;
+      --surface:    #171716;
+      --container:  #1F1F1D;
+      --high:       #2A2A27;
+      --glass:      rgba(255,255,255,.04);
+      --border:     rgba(255,255,255,.12);
+      --divider:    rgba(255,255,255,.08);
+      --cyan:       #D98A66;
+      --cyan-wash:  rgba(217,138,102,.10);
+      --cyan-deep:  #A5634A;
+      --ink:        #ECEAE3;
+      --ink-var:    #A8A49B;
+      --ink-mut:    #6E6A62;
+      --error:      #E08070;
+    }
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {

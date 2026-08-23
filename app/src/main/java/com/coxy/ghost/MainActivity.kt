@@ -104,11 +104,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var perceptionPanel: com.coxy.ghost.ui.PerceptionPanel
     private lateinit var sensorChips: LinearLayout
     private lateinit var sensorCard: View
-    private lateinit var orb: com.coxy.ghost.ui.OrbView
-    /** Chat's resting state: the orb and the greeting, hidden once there is a transcript. */
+    /** Chat's resting state: one greeting, hidden once there is a transcript. */
     private lateinit var chatHero: View
+    /** The five screens, behind a hamburger instead of across the bottom of every one of them. */
+    private lateinit var drawerLayout: androidx.drawerlayout.widget.DrawerLayout
+    /** The drawer's own copy of the perception line, so it says something when it is open. */
+    private lateinit var drawerSubtitle: TextView
     /** Live's mic band. Fed the same audio level the [CONTEXT] block reports. */
-    /** Live's own orb. Chat's is inside the transcript header and cannot be shared. */
+    /**
+     * The orb. One of them now, and it belongs to Live.
+     *
+     * Chat used to carry a second instance at the head of the transcript, kept in step with this
+     * one so the two could never disagree about what she was doing. On a light page above a text
+     * composer it was a graphic sitting where the first question should be, so Chat gave it up and
+     * the synchronisation problem went with it.
+     */
     private lateinit var liveOrb: com.coxy.ghost.ui.OrbView
     private lateinit var liveState: TextView
     private lateinit var liveHeard: TextView
@@ -213,7 +223,10 @@ class MainActivity : AppCompatActivity() {
         perceptionPanel.attach()
         sensorChips = findViewById(R.id.sensor_chips)
         sensorCard = findViewById(R.id.sensor_card)
-        orb = chatHero.findViewById(R.id.orb)
+        drawerLayout = findViewById(R.id.drawer_layout)
+        drawerSubtitle = findViewById(R.id.drawer_subtitle)
+        findViewById<TextView>(R.id.drawer_version).text =
+            getString(R.string.ghost_version_fmt, com.coxy.ghost.BuildConfig.VERSION_NAME)
         liveOrb = findViewById(R.id.live_orb)
         btnTopBrain = findViewById(R.id.btn_top_brain)
         btnCaptureChat = findViewById(R.id.btn_capture_chat)
@@ -285,7 +298,22 @@ class MainActivity : AppCompatActivity() {
         // not new behaviour: the brain indicator opens the cloud dialog that decides which brain
         // answers, and the grid opens the screen every other control lives on.
         btnTopBrain.setOnClickListener { showCloudDialog() }
-        findViewById<View>(R.id.btn_top_menu).setOnClickListener { showTab(Tab.SYSTEM) }
+        findViewById<View>(R.id.btn_top_menu).setOnClickListener {
+            drawerLayout.openDrawer(androidx.core.view.GravityCompat.START)
+        }
+        // Back closes the drawer before it leaves the app, which is the one thing a drawer must do
+        // and the one thing it does not do for free.
+        onBackPressedDispatcher.addCallback(this) {
+            if (drawerLayout.isDrawerOpen(androidx.core.view.GravityCompat.START)) {
+                drawerLayout.closeDrawer(androidx.core.view.GravityCompat.START)
+            } else {
+                // Step aside for one press so the default handler can run, then take the door back.
+                // Left disabled, the drawer would only ever intercept Back once per process.
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                isEnabled = true
+            }
+        }
         // The pill's subtitle is the sensing state in one word; tapping it opens the screen that
         // shows the rest. Without this it would ripple under a press and do nothing.
         findViewById<View>(R.id.identity_pill).setOnClickListener { showTab(Tab.SENSES) }
@@ -499,6 +527,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun showTab(tab: Tab) {
         currentTab = tab
+        // Choosing a destination is the end of navigating, so the drawer gets out of the way
+        // without being asked.
+        if (::drawerLayout.isInitialized) {
+            drawerLayout.closeDrawer(androidx.core.view.GravityCompat.START, true)
+        }
         screenChat.visibility = if (tab == Tab.CHAT) View.VISIBLE else View.GONE
         screenLive.visibility = if (tab == Tab.LIVE) View.VISIBLE else View.GONE
         screenSystem.visibility = if (tab == Tab.SYSTEM) View.VISIBLE else View.GONE
@@ -507,6 +540,25 @@ class MainActivity : AppCompatActivity() {
         // Walking out of Live stops her talking. Finishing a sentence to a screen he has already
         // left is the phone-assistant behaviour this project exists to not be.
         if (tab != Tab.LIVE) com.coxy.ghost.perception.GhostVoice.stop()
+
+        // Live takes the whole screen.
+        //
+        // It is the only screen that does not follow the phone's light setting — the orb is a
+        // thousand luminous points and reads against nothing but dark — so by day the top bar would
+        // be a strip of paper sitting above a black field, and the status bar would be painting
+        // dark icons onto it. Both follow the field instead: the bar goes away, and the system
+        // icons flip to light for as long as Live is up.
+        val live = tab == Tab.LIVE
+        findViewById<View>(R.id.top_bar).visibility = if (live) View.GONE else View.VISIBLE
+        // The root carries the colour of the strips behind the status and gesture bars. The layout
+        // is inset by fitsSystemWindows, so those bands are painted by the root rather than by the
+        // screen inside it, and Live's black otherwise stopped short of both ends of the phone.
+        drawerLayout.setBackgroundColor(
+            ContextCompat.getColor(this, if (live) R.color.live_field else R.color.abyss)
+        )
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            .isAppearanceLightStatusBars =
+                if (live) false else resources.getBoolean(R.bool.light_system_bars)
         // Redrawn on arrival, never scanned on arrival: a sweep wakes every device on the network
         // and should be something Coxy asks for, not something a glance triggers.
         if (tab == Tab.DEVICES) devicesPanel.refresh()
@@ -535,7 +587,11 @@ class MainActivity : AppCompatActivity() {
      * nothing, rather than a row of "unknown".
      */
     private fun renderPerception(cs: com.coxy.ghost.perception.ContextState) {
-        perceptionTv.text = if (cs.hasSignal()) cs.activity.name.lowercase() else getString(R.string.ghost_perception_idle)
+        val sensing = if (cs.hasSignal()) cs.activity.name.lowercase() else getString(R.string.ghost_perception_idle)
+        perceptionTv.text = sensing
+        // The drawer shows the same line. It is the only thing about her state visible while the
+        // drawer covers the top bar that would otherwise be reporting it.
+        drawerSubtitle.text = sensing
         // The Senses screen reads the same state object as the chips, so the two can never
         // disagree about what is being sensed.
         perceptionPanel.render(cs)
@@ -592,9 +648,6 @@ class MainActivity : AppCompatActivity() {
             cs.micState == MicState.SILENT -> com.coxy.ghost.ui.OrbView.OrbState.IDLE
             else -> com.coxy.ghost.ui.OrbView.OrbState.IDLE
         }
-        // Both orbs, always. They are two instances of one presence, and a Live orb still on IDLE
-        // while Chat's is THINKING would be GHOST disagreeing with herself about what she is doing.
-        orb.setOrbState(state)
         liveOrb.setOrbState(state)
 
         // Which brain answered, carried by the orb's temperature and the top-bar disc as well as
@@ -602,7 +655,6 @@ class MainActivity : AppCompatActivity() {
         // miss in a line of text.
         val brainNow = com.coxy.ghost.cloud.CloudRouter.lastBrain
         val onCloud = brainNow == com.coxy.ghost.cloud.CloudRouter.Companion.Brain.CLOUD
-        orb.setCloudBrain(onCloud)
         liveOrb.setCloudBrain(onCloud)
         // UNKNOWN means no query has been answered yet, which is not the same as "local". The orb
         // has to pick a temperature and rests cool, but the disc must not claim a brain it has no

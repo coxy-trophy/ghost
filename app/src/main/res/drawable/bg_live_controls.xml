@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Live's secondary controls sit in the bottom corners as separate glass discs, not one bar. -->
-<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/glass_fill_hover">
+<!--
+  Live's mute and exit buttons.
+
+  Hardcoded whites rather than palette tokens, because Live is the one screen that does not follow
+  the phone: its field stays near-black in both modes so the orb has something to read against, and
+  a control tinted from the light palette would be a pale disc on a black field by day.
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="#1FFFFFFF">
     <item>
         <shape android:shape="oval">
-            <solid android:color="@color/glass_fill" />
-            <stroke android:width="1dp" android:color="@color/glass_border" />
+            <solid android:color="#0FFFFFFF" />
+            <stroke android:width="1dp" android:color="#26FFFFFF" />
         </shape>
     </item>
 </ripple>

@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The top bar's circular controls: glass discs floating in the void, no page behind them. -->
+<!--
+  The brain indicator at rest. A ripple and nothing else.
+
+  It used to be a bordered disc, which on a black field read as an object floating in the void and
+  on a page reads as a button drawn around an icon. The icon's tint already carries the only thing
+  this control reports — cool for the local brain, hot for the cloud — so the disc was saying
+  "something is here" next to something already visibly here.
+-->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/glass_fill_hover">
-    <item>
+    <item android:id="@android:id/mask">
         <shape android:shape="oval">
-            <solid android:color="@color/glass_fill" />
-            <stroke android:width="1dp" android:color="@color/glass_border" />
+            <solid android:color="@color/white" />
         </shape>
     </item>
 </ripple>
