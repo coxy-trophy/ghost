@@ -130,15 +130,13 @@ object PiperVoice {
                 text = text,
                 sid = 0,
                 speed = speed,
-                callback = { samples ->
+                callback = SamplesCallback { samples ->
                     // 16-bit PCM: sherpa hands back floats in -1..1.
                     val pcm = ShortArray(samples.size) {
                         (samples[it].coerceIn(-1f, 1f) * 32767f).toInt().toShort()
                     }
                     out.write(pcm, 0, pcm.size)
                     onProgress()
-                    // Non-zero keeps generation going; zero asks it to stop.
-                    1
                 }
             )
             // Let the buffer drain before the state flips, or she stops "speaking" mid-word.
