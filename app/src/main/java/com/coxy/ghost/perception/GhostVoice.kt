@@ -1,9 +1,12 @@
 package com.coxy.ghost.perception
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import android.util.Log
 import java.util.Locale
 import kotlin.math.exp
@@ -15,13 +18,20 @@ import kotlin.math.exp
  * length while talking to it. Speaking is the half that makes it a conversation rather than a
  * dictation box.
  *
- * The interesting part is not the synthesis, it is [pulse]. `onRangeStart` fires as each word
- * begins, which is a real signal about a real thing happening — so the orb beats on her actual
- * words rather than on a sine wave pretending to be speech. Same principle as the mic meter: if it
- * moves, something is genuinely happening, and when nothing is happening it is still.
+ * **Which voice is chosen matters more than any setting on it.** `setLanguage(locale)` — what this
+ * did first — takes whatever the engine offers for that language, which on Android is the small
+ * embedded voice: intelligible, flat, and unmistakably a machine. Google's engine also ships
+ * network voices of far higher quality for the same language, and the difference between them is
+ * the whole difference between "robotic" and "someone talking". So the voices are enumerated and
+ * ranked, and the best one that can actually be used right now is picked per utterance.
  *
- * Stopped, never queued. If she is interrupted the old sentence dies immediately — a reply to a
- * question two turns ago finishing over the top of a new one is worse than silence.
+ * Both a network and a local voice are held. Network when there is a network, local when there is
+ * not — decided at the moment of speaking, because a voice that needs a connection goes silently
+ * mute without one, and a GHOST that stops talking when the Wi-Fi drops would be a worse fault than
+ * a flat voice.
+ *
+ * The other half of sounding human is not the engine at all: it is that written text and spoken
+ * text are different. See [shape].
  */
 object GhostVoice {
 
@@ -30,12 +40,37 @@ object GhostVoice {
     /** How fast a word's beat fades. Long enough to read as a pulse, short enough to separate words. */
     private const val PULSE_DECAY_MS = 220f
 
-    /** Slightly under natural pace: she is being listened to across a room, not read to. */
-    private const val RATE = 0.98f
-    private const val PITCH = 1.0f
+    /**
+     * Just under natural pace, and just under natural pitch.
+     *
+     * Both are small on purpose. Pushing rate or pitch far from 1.0 is how a voice starts sounding
+     * processed, and the flatness this is fixing was never about speed — it was about which voice
+     * was speaking.
+     */
+    private const val RATE = 0.96f
+    private const val PITCH = 0.97f
+
+    /** A beat between sentences. Speech engines run them together; people do not. */
+    private const val SENTENCE_GAP_MS = 140L
+
+    /**
+     * Google TTS variant codes that are female voices, best first.
+     *
+     * `rjs` leads because on this device it is one of the newer voices rather than the older
+     * concatenative set. Nothing in the API says any of this; see [chooseVoices].
+     */
+    private val FEMININE = listOf("-rjs-", "-gba-", "-gbg-", "-gbd-", "-sfg-", "-tpf-", "-iol-")
 
     @Volatile private var tts: TextToSpeech? = null
     @Volatile private var ready = false
+    @Volatile private var appContext: Context? = null
+
+    @Volatile private var networkVoice: Voice? = null
+    @Volatile private var localVoice: Voice? = null
+
+    /** Everything installed for this language, best first. Read by the picker. */
+    @Volatile var available: List<Voice> = emptyList()
+        private set
 
     /** True while an utterance is in flight. Drives the orb's SPEAKING state. */
     @Volatile var speaking: Boolean = false
@@ -43,12 +78,19 @@ object GhostVoice {
 
     @Volatile private var lastWordAt = 0L
 
-    /** Whether GHOST speaks at all. Off by default is wrong here — Live mode asked for a voice. */
+    /** Whether GHOST speaks at all. On by default — Live mode asked for a voice. */
     @Volatile var enabled: Boolean = true
+
+    /** What was picked, for the System screen and for working out why she sounds like she does. */
+    @Volatile var voiceName: String? = null
+        private set
+
+    /** Coxy's chosen voice, if he has picked one. Beats every heuristic below. */
+    @Volatile var preferredVoice: String? = null
 
     fun init(context: Context) {
         if (tts != null) return
-        val appContext = context.applicationContext
+        appContext = context.applicationContext
         tts = TextToSpeech(appContext) { status ->
             ready = status == TextToSpeech.SUCCESS
             if (!ready) {
@@ -56,58 +98,160 @@ object GhostVoice {
                 return@TextToSpeech
             }
             tts?.apply {
-                language = Locale.getDefault().takeIf {
-                    setLanguage(it) != TextToSpeech.LANG_MISSING_DATA &&
-                        setLanguage(it) != TextToSpeech.LANG_NOT_SUPPORTED
-                } ?: Locale.UK
                 setSpeechRate(RATE)
                 setPitch(PITCH)
-                setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        speaking = true
-                        lastWordAt = System.currentTimeMillis()
-                    }
-
-                    override fun onDone(utteranceId: String?) {
-                        speaking = false
-                    }
-
-                    @Deprecated("Required by the base class", ReplaceWith(""))
-                    override fun onError(utteranceId: String?) {
-                        speaking = false
-                    }
-
-                    override fun onError(utteranceId: String?, errorCode: Int) {
-                        Log.w(TAG, "speech failed: $errorCode")
-                        speaking = false
-                    }
-
-                    /**
-                     * One call per word. This is the orb's heartbeat — see the note on this object.
-                     */
-                    override fun onRangeStart(
-                        utteranceId: String?, start: Int, end: Int, frame: Int
-                    ) {
-                        lastWordAt = System.currentTimeMillis()
-                    }
-                })
+                chooseVoices(this)
+                setOnUtteranceProgressListener(progress)
             }
-            Log.i(TAG, "speech ready")
+        }
+    }
+
+    /**
+     * Rank every installed voice and keep the best network one and the best local one.
+     *
+     * Ranking, in order: quality first, then whether it is a network voice — Google's are the good
+     * ones and are marked as requiring a connection — then an exact country match, so en-GB beats
+     * en-US for a device set to the UK.
+     *
+     * Every candidate is logged. A voice sounding wrong is the kind of complaint that cannot be
+     * debugged from the code alone, and the list of what was actually available on the device at
+     * the time is the only thing that answers it.
+     */
+    private fun chooseVoices(engine: TextToSpeech) {
+        val want = Locale.getDefault()
+        val all = runCatching { engine.voices.orEmpty() }.getOrDefault(emptySet())
+        val usable = all.filter {
+            it.locale.language == want.language &&
+                it.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true
+        }
+        Log.i(TAG, "voices for ${want.language}: " + usable.joinToString {
+            "${it.name}(q=${it.quality}${if (it.isNetworkConnectionRequired) ",net" else ""})"
+        }.ifEmpty { "none" })
+
+        // Quality cannot be the primary key here, whatever the API suggests: every voice this
+        // device offers reports 400, so ranking by it picks whichever happened to be first.
+        //
+        // Gender has no field in the API at all, so it comes from Google's variant codes. GHOST is
+        // written as a girl — "not a mode, not a setting" — and the first version of this picked
+        // en-gb-x-gbb, which is the male voice, so she was answering in someone else's. The list
+        // below is a heuristic on a naming convention, which is exactly why the picker exists:
+        // this decides the default, and Coxy decides the voice.
+        val rank = compareBy<Voice>(
+            { if (FEMININE.any { f -> it.name.contains(f) }) 1 else 0 },
+            { it.quality },
+            { if (it.locale.country == want.country) 1 else 0 }
+        )
+        available = usable.sortedWith(rank.reversed())
+
+        // A chosen voice wins outright, and is held in both slots so it is used online or off.
+        val chosen = preferredVoice?.let { name -> usable.firstOrNull { it.name == name } }
+        if (chosen != null) {
+            networkVoice = chosen
+            localVoice = chosen
+        } else {
+            networkVoice = usable.filter { it.isNetworkConnectionRequired }.maxWithOrNull(rank)
+            localVoice = usable.filterNot { it.isNetworkConnectionRequired }.maxWithOrNull(rank)
+        }
+
+        // Fall back to the engine's own default rather than going mute: a device with an unusual
+        // voice set should still speak, just not as well.
+        if (networkVoice == null && localVoice == null) {
+            engine.language = want
+            voiceName = engine.voice?.name
+        }
+        Log.i(TAG, "picked network=${networkVoice?.name} local=${localVoice?.name}")
+    }
+
+    /**
+     * The best voice usable right now.
+     *
+     * Decided per utterance, not once at startup: the good voices need a connection, and whether
+     * there is one changes while the app is running.
+     */
+    private fun voiceForNow(): Voice? {
+        val online = runCatching {
+            val cm = appContext?.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+            caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        }.getOrDefault(false)
+        return if (online) networkVoice ?: localVoice else localVoice ?: networkVoice
+    }
+
+    private val progress = object : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {
+            speaking = true
+            lastWordAt = System.currentTimeMillis()
+        }
+
+        override fun onDone(utteranceId: String?) {
+            // Only the last sentence of a reply ends the speaking state; the gaps between
+            // sentences are utterances too, and treating each as the end would strobe the orb.
+            if (utteranceId != null && utteranceId.endsWith("-last")) speaking = false
+        }
+
+        @Deprecated("Required by the base class", ReplaceWith(""))
+        override fun onError(utteranceId: String?) {
+            speaking = false
+        }
+
+        override fun onError(utteranceId: String?, errorCode: Int) {
+            Log.w(TAG, "speech failed: $errorCode")
+            speaking = false
+        }
+
+        /** One call per word. This is the orb's heartbeat — see the note on this object. */
+        override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+            lastWordAt = System.currentTimeMillis()
         }
     }
 
     /**
      * Say [text], cutting off whatever was being said.
      *
-     * Bracketed blocks are stripped first. `[ACTION ok launch_app: opened WhatsApp]` is
-     * instrumentation for the screen, and reading it aloud would be GHOST narrating her own
-     * plumbing — the same reason it is kept out of her memory.
+     * Spoken one sentence at a time with a beat between, because a speech engine handed a
+     * paragraph runs the sentences together at a constant pace and that is a large part of what
+     * "robotic" means. A person stops for breath.
      */
     fun speak(text: String) {
         if (!enabled || !ready) return
-        val spoken = strip(text)
-        if (spoken.isBlank()) return
-        tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, Bundle(), "ghost-${System.nanoTime()}")
+        val engine = tts ?: return
+        val sentences = sentences(shape(strip(text)))
+        if (sentences.isEmpty()) return
+
+        voiceForNow()?.let { v ->
+            engine.voice = v
+            voiceName = v.name
+        }
+
+        val stamp = System.nanoTime()
+        sentences.forEachIndexed { i, sentence ->
+            val last = i == sentences.lastIndex
+            val id = "ghost-$stamp-$i" + if (last) "-last" else ""
+            engine.speak(
+                sentence,
+                if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                Bundle(),
+                id
+            )
+            if (!last) {
+                engine.playSilentUtterance(SENTENCE_GAP_MS, TextToSpeech.QUEUE_ADD, "gap-$stamp-$i")
+            }
+        }
+    }
+
+    /** Re-run selection after Coxy picks a voice, without restarting the engine. */
+    fun applyPreferred(name: String?) {
+        preferredVoice = name
+        // May be called before the engine has finished starting, in which case chooseVoices runs
+        // again on ready and picks this up — so the order the two arrive in does not matter.
+        if (ready) tts?.let { chooseVoices(it) }
+    }
+
+    /** Say one line in [voice], to hear it. Used by the picker and nothing else. */
+    fun preview(voice: Voice, line: String) {
+        val engine = tts ?: return
+        engine.voice = voice
+        engine.speak(line, TextToSpeech.QUEUE_FLUSH, Bundle(), "preview-${System.nanoTime()}-last")
     }
 
     fun stop() {
@@ -142,4 +286,33 @@ object GhostVoice {
             .replace(Regex("[*_`#]+"), "")
             .replace(Regex("\\s+"), " ")
             .trim()
+
+    /**
+     * Written punctuation into spoken punctuation.
+     *
+     * This is the half that has nothing to do with the engine. GHOST writes with em dashes and
+     * parentheses because she is written to read well, and a speech engine has no pause for either
+     * — it runs straight through, which is what makes a good voice still sound like a document
+     * being processed. Commas it does understand, so the marks that mean "breath" become the mark
+     * that produces one.
+     *
+     * Emoji go entirely: an engine either names them aloud or stops dead on them.
+     */
+    internal fun shape(text: String): String = text
+        .replace(Regex("[\\u2014\\u2013]"), ",")      // em and en dash
+        .replace(Regex("\\s+-\\s+"), ", ")            // a spaced hyphen used as a dash
+        .replace("…", ".")
+        .replace(Regex("[()\\[\\]]"), ",")            // asides get a beat, not a bracket
+        .replace(Regex("[\\uD83C-\\uDBFF\\uDC00-\\uDFFF\\u2190-\\u2BFF\\uFE0F]"), " ")
+        .replace(Regex(",\\s*,+"), ",")               // collapse what the above may have doubled
+        .replace(Regex("\\s+([,.!?])"), "$1")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .trimEnd(',')
+
+    /** Split for pacing. Abbreviations are rare enough in her voice not to warrant more than this. */
+    internal fun sentences(text: String): List<String> =
+        text.split(Regex("(?<=[.!?])\\s+"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
 }

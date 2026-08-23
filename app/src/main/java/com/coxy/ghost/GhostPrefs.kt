@@ -58,6 +58,9 @@ object GhostPrefs {
     /** Whether GHOST speaks her replies aloud in Live mode. */
     private val KEY_VOICE_ENABLED = booleanPreferencesKey("voice_enabled")
 
+    /** The voice Coxy chose by listening to them. Beats every heuristic in GhostVoice. */
+    private val KEY_PREFERRED_VOICE = stringPreferencesKey("preferred_voice")
+
     /**
      * Which one-off memory cleanups have already run.
      *
@@ -161,6 +164,15 @@ object GhostPrefs {
 
     suspend fun setVoiceEnabled(ctx: Context, enabled: Boolean) {
         ctx.ghostDataStore.edit { p -> p[KEY_VOICE_ENABLED] = enabled }
+    }
+
+    suspend fun getPreferredVoice(ctx: Context): String? =
+        ctx.ghostDataStore.data.map { it[KEY_PREFERRED_VOICE] }.first()
+
+    suspend fun setPreferredVoice(ctx: Context, name: String?) {
+        ctx.ghostDataStore.edit { p ->
+            if (name == null) p.remove(KEY_PREFERRED_VOICE) else p[KEY_PREFERRED_VOICE] = name
+        }
     }
 
     suspend fun memoryCleanupVersion(ctx: Context): Int =

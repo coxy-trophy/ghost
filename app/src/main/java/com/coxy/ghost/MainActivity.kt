@@ -268,11 +268,15 @@ class MainActivity : AppCompatActivity() {
         btnPersonality.setOnClickListener { showPersonalityDialog() }
         btnCloud.setOnClickListener { showCloudDialog() }
         btnMic.setOnClickListener { toggleMic() }
-        btnVoice.setOnClickListener { toggleVoice() }
+        btnVoice.setOnClickListener { com.coxy.ghost.ui.VoiceDialog(this, lifecycleScope).show() }
         lifecycleScope.launch(Dispatchers.IO) {
             val on = GhostPrefs.isVoiceEnabled(applicationContext)
             com.coxy.ghost.perception.GhostVoice.enabled = on
-            withContext(Dispatchers.Main) { paintVoiceButton(on) }
+            // Applied before the engine finishes initialising as well as after: whichever order
+            // they land in, the chosen voice is in place before she first speaks.
+            com.coxy.ghost.perception.GhostVoice.applyPreferred(
+                GhostPrefs.getPreferredVoice(applicationContext)
+            )
         }
         // The top bar's two discs are shortcuts to the settings behind the state they display,
         // not new behaviour: the brain indicator opens the cloud dialog that decides which brain
@@ -1054,21 +1058,6 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showPersonalityDialog() =
         PersonalityDialog(this, lifecycleScope, personalityRepo, ::startServiceWithAction).show()
-
-    /** Turn her voice on or off, and remember it. Silence has to survive a restart to be useful. */
-    private fun toggleVoice() {
-        val on = !com.coxy.ghost.perception.GhostVoice.enabled
-        com.coxy.ghost.perception.GhostVoice.enabled = on
-        if (!on) com.coxy.ghost.perception.GhostVoice.stop()
-        paintVoiceButton(on)
-        lifecycleScope.launch(Dispatchers.IO) {
-            GhostPrefs.setVoiceEnabled(applicationContext, on)
-        }
-    }
-
-    private fun paintVoiceButton(on: Boolean) {
-        btnVoice.text = getString(if (on) R.string.ghost_voice_on else R.string.ghost_voice_off)
-    }
 
     private fun showCloudDialog() = CloudDialog(this, lifecycleScope).show()
 
