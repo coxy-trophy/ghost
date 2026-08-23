@@ -174,6 +174,29 @@ if [ "$DO_LIBS" = "1" ]; then
   echo "Native libs replaced."
 fi
 
+# --- 4. Stamp the carried GHOST version onto the module ---
+#
+# Magisk Manager shows module.prop's version line, and until now it said v0.3.0 while the module
+# held GHOST 0.27.1 — a number that had been wrong for twenty-four app releases because nothing
+# ever wrote it. Writing a fresh number by hand only resets the clock on the same problem, so the
+# app version is stamped here instead, from the APK actually being shipped rather than from
+# build.gradle.kts, which can disagree with the last build.
+#
+# The base "vX.Y.Z" is the module's own version and is preserved; everything after it is replaced,
+# so re-deploying restamps rather than accumulating.
+MODULE_PROP=/data/adb/modules/ghost_systemapp/module.prop
+AAPT=$(ls -d "${ANDROID_HOME:-$HOME/Library/Android/sdk}"/build-tools/*/aapt2 2>/dev/null | tail -1)
+if [ -n "$AAPT" ] && [ -f "$AAPT" ]; then
+  APP_VER=$("$AAPT" dump badging "$APK" 2>/dev/null | \
+    sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+fi
+if [ -n "$APP_VER" ]; then
+  $ADB shell "su -c 'sed -i -E \"s|^version=(v[0-9]+\.[0-9]+\.[0-9]+).*|version=\\1 (GHOST $APP_VER)|\" $MODULE_PROP'"
+  echo "Module version: $($ADB shell "su -c 'grep ^version= $MODULE_PROP'" | tr -d '\r')"
+else
+  echo "Could not read the APK's version (no aapt2) — module.prop left unstamped."
+fi
+
 $ADB shell "rm -f $STAGE" >/dev/null 2>&1 || true
 
 if [ "$DO_REBOOT" = "0" ]; then
