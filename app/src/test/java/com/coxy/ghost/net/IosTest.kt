@@ -184,3 +184,76 @@ class VoiceAndSensesTest {
         assertFalse(state.toPromptBlock().contains("do not mention"))
     }
 }
+
+/** The light markdown a model writes, and what the screens do with it. */
+class MarkupTest {
+
+    @Test
+    fun `bold loses its stars and keeps its emphasis`() {
+        // The reply that exposed this read: There's **Margaret Hager**, a chiropractor
+        val out = com.coxy.ghost.ui.Markup.parse("There's **Margaret Hager**, a chiropractor")
+        assertEquals("There's Margaret Hager, a chiropractor", out.text)
+    }
+
+    @Test
+    fun `italics and code lose their markers too`() {
+        assertEquals("really useful", com.coxy.ghost.ui.Markup.parse("*really* useful").text)
+        assertEquals("run pm list", com.coxy.ghost.ui.Markup.parse("run `pm list`").text)
+    }
+
+    @Test
+    fun `several bold runs in one line all resolve`() {
+        // A forward loop breaks here: each replacement shifts every later match two left.
+        assertEquals(
+            "one two three",
+            com.coxy.ghost.ui.Markup.parse("**one** **two** **three**").text
+        )
+    }
+
+    @Test
+    fun `headings are dropped rather than shown`() {
+        assertEquals("Kotlin 2.4.10", com.coxy.ghost.ui.Markup.parse("## Kotlin 2.4.10").text)
+    }
+
+    @Test
+    fun `ordinary text with an asterisk in it survives`() {
+        // Not a markdown renderer, and must not mangle a sentence that merely contains one.
+        val plain = "The 2 * 3 result, and a lone * here"
+        assertEquals(plain, com.coxy.ghost.ui.Markup.parse(plain).text)
+    }
+
+    @Test
+    fun `an underscore inside a word is not italics`() {
+        val name = "com.coxy.ghost is fine and so is snake_case_name"
+        assertEquals(name, com.coxy.ghost.ui.Markup.parse(name).text)
+    }
+}
+
+/** That the emphasis lands on the right words, not just that the stars go. */
+class MarkupSpanTest {
+
+    @Test
+    fun `the mark covers exactly the emphasised words`() {
+        val p = com.coxy.ghost.ui.Markup.parse("There's **Margaret Hager**, a chiropractor")
+        val mark = p.marks.single()
+        assertEquals(com.coxy.ghost.ui.Markup.Style.BOLD, mark.style)
+        assertEquals("Margaret Hager", p.text.substring(mark.start, mark.end))
+    }
+
+    @Test
+    fun `three bold runs each land on their own words`() {
+        // Walking forwards puts every mark after the first two characters to the left.
+        val p = com.coxy.ghost.ui.Markup.parse("**one** and **two** and **three**")
+        val covered = p.marks.map { p.text.substring(it.start, it.end) }.sorted()
+        assertEquals(listOf("one", "three", "two"), covered)
+    }
+
+    @Test
+    fun `every mark stays inside the text it describes`() {
+        val p = com.coxy.ghost.ui.Markup.parse("**a** *b* `c` and some trailing words")
+        for (m in p.marks) {
+            assertTrue("mark $m runs off the end of '${p.text}'", m.end <= p.text.length)
+            assertTrue(m.start in 0 until m.end)
+        }
+    }
+}

@@ -41,7 +41,9 @@ class MessageAdapter(
         val message = messages[position]
         if (holder is UserMessageViewHolder || holder is AssistantMessageViewHolder) {
             val textView = holder.itemView.findViewById<TextView>(R.id.msg_content)
-            textView.text = message.content
+            // Rendered, not printed. Models emphasise with asterisks whether or not anything asked
+            // them to, and the bubbles were showing the stars.
+            textView.text = com.coxy.ghost.ui.Markup.inline(message.content)
         }
     }
 

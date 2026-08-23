@@ -578,7 +578,7 @@ class MainActivity : AppCompatActivity() {
 
         // Live mode mirrors the voice channel and drives the orb.
         cs.voiceCommand?.let { liveHeard.text = it }
-        liveReply.text = cs.voiceResponse ?: ""
+        liveReply.text = com.coxy.ghost.ui.Markup.inline(cs.voiceResponse ?: "")
         val state = when {
             // Speaking outranks thinking: the engine can still be finishing a reply she has
             // already started saying, and what she is visibly doing is talking.

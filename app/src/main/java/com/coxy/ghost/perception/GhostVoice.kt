@@ -61,6 +61,20 @@ object GhostVoice {
      */
     private val FEMININE = listOf("-rjs-", "-gba-", "-gbg-", "-gbd-", "-sfg-", "-tpf-", "-iol-")
 
+    /**
+     * How strongly this looks like the voice GHOST should have. Higher is better, -1 is not on the
+     * list at all.
+     *
+     * An ordered score rather than a boolean, which is what the first version used: every female
+     * voice then tied at "yes", and with quality tied at 400 across all thirty the winner came down
+     * to iteration order. It picked a reasonable one by luck, and would have picked a different one
+     * on the next device.
+     */
+    private fun feminineScore(voice: Voice): Int {
+        val i = FEMININE.indexOfFirst { voice.name.contains(it) }
+        return if (i < 0) -1 else FEMININE.size - i
+    }
+
     @Volatile private var tts: TextToSpeech? = null
     @Volatile private var ready = false
     @Volatile private var appContext: Context? = null
@@ -137,7 +151,7 @@ object GhostVoice {
         // below is a heuristic on a naming convention, which is exactly why the picker exists:
         // this decides the default, and Coxy decides the voice.
         val rank = compareBy<Voice>(
-            { if (FEMININE.any { f -> it.name.contains(f) }) 1 else 0 },
+            { feminineScore(it) },
             { it.quality },
             { if (it.locale.country == want.country) 1 else 0 }
         )
