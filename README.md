@@ -51,7 +51,7 @@ else's and that is on you.
 You need a rooted Android device, JDK 17, and the Android SDK (NDK 30, CMake 4.1.2).
 
 ```bash
-git clone --recursive https://github.com/<you>/ghost.git
+git clone --recursive https://github.com/coxy-trophy/ghost.git
 cd ghost
 
 # JDK 17 specifically. Android Studio ships a newer JBR that AGP will not accept.
