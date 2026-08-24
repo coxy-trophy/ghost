@@ -1,0 +1,6 @@
+id=ghost_systemapp
+name=GHOST system app
+version=v0.4.0
+versionCode=4
+author=coxy
+description=Installs GHOST as a privileged system app (overlay into /system/priv-app) and starts it at boot as root, bypassing ColorOS's auto-start cold-start block. Re-applies Doze/appops/standby battery exemptions every boot. The version line above carries the module's own version; the GHOST build it currently holds is stamped onto it by tools/deploy_system_app.sh at each deploy, because a number nobody updates is worse than no number.

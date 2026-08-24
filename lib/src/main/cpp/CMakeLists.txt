@@ -30,7 +30,20 @@ if(DEFINED ANDROID_ABI)
     endif()
 endif()
 
-set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../../../)
+# llama.cpp, as a submodule of this repository rather than as whatever happens to be six
+# directories up.
+#
+# This began life inside llama.cpp's own tree, at examples/llama.android, so the path used to walk
+# up out of the app and into its host. That works exactly as long as the app is sitting in the right
+# place inside somebody else's checkout, which is not a thing a clone of this repository can be.
+#
+# vendor/llama.cpp is pinned; see .gitmodules and the note in README.md about why it is pinned
+# rather than tracked.
+set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../vendor/llama.cpp)
+if(NOT EXISTS ${LLAMA_SRC}/CMakeLists.txt)
+    message(FATAL_ERROR
+        "vendor/llama.cpp is empty. Run: git submodule update --init --recursive")
+endif()
 add_subdirectory(${LLAMA_SRC} build-llama)
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
