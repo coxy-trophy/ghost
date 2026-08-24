@@ -1,12 +1,13 @@
 package com.coxy.ghost.ui
 
+import android.content.res.ColorStateList
+import androidx.core.content.ContextCompat
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import android.view.LayoutInflater
-import com.google.android.material.button.MaterialButton
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.coxy.ghost.R
@@ -49,8 +50,8 @@ class PersonalityDialog(
         val container = LayoutInflater.from(activity)
             .inflate(R.layout.dialog_personality, null) as ScrollView
         val sliderContainer = container.findViewById<LinearLayout>(R.id.slider_container)
-        val btnSnapshot = container.findViewById<MaterialButton>(R.id.btn_snapshot)
-        val btnRollback = container.findViewById<MaterialButton>(R.id.btn_rollback)
+        val btnSnapshot = container.findViewById<android.widget.Button>(R.id.btn_snapshot)
+        val btnRollback = container.findViewById<android.widget.Button>(R.id.btn_rollback)
 
         // Trait definition: display label + getter/setter against the mutable copy we load.
         data class TraitDef(
@@ -62,6 +63,9 @@ class PersonalityDialog(
         )
 
         var mutableProfile = profileRef.copy()
+
+        val accent = ContextCompat.getColor(activity, R.color.accent)
+        val track = ContextCompat.getColor(activity, R.color.glass_border)
 
         val traits = listOf(
             TraitDef("Humor", profileRef.humorMin, profileRef.humorMax, { mutableProfile.humor }, { mutableProfile = mutableProfile.copy(humor = it) }),
@@ -82,15 +86,29 @@ class PersonalityDialog(
             }
             val label = TextView(activity).apply {
                 text = def.label
+                textSize = 15f
+                setTextColor(ContextCompat.getColor(activity, R.color.on_surface))
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val seekBar = SeekBar(activity).apply {
                 max = 100
                 progress = def.get()
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
+                // Tinted in code rather than by a style, because these are constructed here and a
+                // SeekBar cannot be given a style after construction. Left alone they render in
+                // Material's own default, which was the last saturated orange in the app that
+                // belonged to no palette.
+                progressTintList = ColorStateList.valueOf(accent)
+                thumbTintList = ColorStateList.valueOf(accent)
+                progressBackgroundTintList = ColorStateList.valueOf(track)
             }
             val valueLabel = TextView(activity).apply {
                 text = def.get().toString()
+                // Monospace so the row does not shift as the number changes width. The old
+                // proportional label moved the whole line every time a value crossed 99 or 100.
+                typeface = android.graphics.Typeface.MONOSPACE
+                textSize = 13f
+                setTextColor(ContextCompat.getColor(activity, R.color.on_surface_variant))
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
                 textAlignment = TextView.TEXT_ALIGNMENT_TEXT_END
             }
@@ -108,7 +126,7 @@ class PersonalityDialog(
             row.addView(label)
             row.addView(seekBar)
             row.addView(valueLabel)
-            sliderContainer.addView(row, sliderContainer.childCount - 2)
+            sliderContainer.addView(row, sliderContainer.childCount - 1)
         }
 
         val dialog = AlertDialog.Builder(activity, R.style.Theme_Ghost_Dialog)

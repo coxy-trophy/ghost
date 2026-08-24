@@ -24,18 +24,18 @@
     <string name="ghost_pick_model">Model</string>
     <string name="ghost_capture">Capture</string>
     <string name="ghost_personality">Personality</string>
-    <string name="ghost_personality_title">GHOST Personality</string>
+    <string name="ghost_personality_title">Personality</string>
     <string name="ghost_personality_save">Save</string>
     <string name="ghost_personality_reset">Reset to baseline</string>
     <string name="ghost_personality_snapshots">Snapshots</string>
-    <string name="ghost_personality_snapshot">📸 Snapshot current profile</string>
-    <string name="ghost_personality_rollback">↩ Rollback to snapshot</string>
+    <string name="ghost_personality_snapshot">Snapshot this profile</string>
+    <string name="ghost_personality_rollback">Roll back to a snapshot</string>
     <string name="ghost_personality_applied">Personality updated; model reloading…</string>
     <string name="ghost_personality_baseline">Reset to baseline</string>
 
     <!-- Phase 8 cloud brain -->
     <string name="ghost_cloud">Cloud</string>
-    <string name="ghost_cloud_title">Cloud Brain (Ollama)</string>
+    <string name="ghost_cloud_title">Cloud brain</string>
     <string name="ghost_cloud_key_hint">Ollama API key</string>
     <string name="ghost_cloud_enabled">Use cloud brain when online</string>
     <string name="ghost_cloud_logging">Log interactions for distillation</string>

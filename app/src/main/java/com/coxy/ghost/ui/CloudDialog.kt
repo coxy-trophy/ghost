@@ -77,7 +77,11 @@ class CloudDialog(
         }
         container.addView(webSearchSwitch)
 
-        val modes = com.coxy.ghost.cloud.CloudPromptFilter.Mode.entries.map { it.name.lowercase() }
+        // Enum names, made readable. FULL is an identifier; "Full" is the word for what it does.
+        // The mapping back to a Mode still goes through the enum, so the label is presentation only.
+        val modes = com.coxy.ghost.cloud.CloudPromptFilter.Mode.entries.map {
+            it.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+        }
         val modeLabel = TextView(activity).apply {
             text = activity.getString(R.string.ghost_cloud_privacy)
             setPadding(0, 16, 0, 8)
@@ -89,7 +93,10 @@ class CloudDialog(
                 android.R.layout.simple_spinner_dropdown_item,
                 modes
             )
-            setSelection(modes.indexOf(settings.privacyMode.name.lowercase()).coerceAtLeast(0))
+            setSelection(
+                com.coxy.ghost.cloud.CloudPromptFilter.Mode.entries
+                    .indexOf(settings.privacyMode).coerceAtLeast(0)
+            )
         }
         container.addView(modeSpinner)
 

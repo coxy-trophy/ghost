@@ -1,6 +1,9 @@
 package com.coxy.ghost.ui
 
-import android.app.AlertDialog
+// AppCompat, not android.app. The framework AlertDialog ignores every Material
+// attribute in Theme.Ghost.Dialog — its buttons came out uppercase and in the
+// default purple, which was the only purple left anywhere in the app.
+import androidx.appcompat.app.AlertDialog
 import android.speech.tts.Voice
 import android.view.Gravity
 import android.widget.LinearLayout

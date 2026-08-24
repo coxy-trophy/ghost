@@ -277,6 +277,14 @@
         <item name="android:stateListAnimator">@null</item>
     </style>
 
+    <!--
+      Every dialog in the app.
+
+      These are where the redesign stopped, and it showed: the System screen learned the new language
+      and then every row on it opened something still speaking the old one — sans titles where the
+      rest of the app titles in serif, and three text buttons of identical weight where one of them
+      was Save and another reset the profile to baseline.
+    -->
     <style name="Theme.Ghost.Dialog" parent="Theme.Material3.DayNight.Dialog.Alert">
         <item name="colorPrimary">@color/accent</item>
         <item name="colorSurface">@color/surface_container</item>
@@ -284,5 +292,37 @@
         <item name="android:windowBackground">@drawable/bg_dialog</item>
         <item name="android:textColorPrimary">@color/on_surface</item>
         <item name="android:textColorSecondary">@color/on_surface_variant</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/TextAppearance.Ghost.DialogTitle</item>
+        <item name="android:windowTitleStyle">@style/TextAppearance.Ghost.DialogTitle</item>
+        <!--
+          The three buttons are not three of a kind. Save commits, and the other two are a way out
+          and a way back — so only one of them is filled.
+        -->
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.Ghost.DialogButton.Primary</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.Ghost.DialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Widget.Ghost.DialogButton</item>
+    </style>
+
+    <!-- A dialog's name, in the same serif the drawer and the greeting use. -->
+    <style name="TextAppearance.Ghost.DialogTitle" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:fontFamily">serif</item>
+        <item name="fontFamily">serif</item>
+        <item name="android:textColor">@color/on_surface</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+
+    <style name="Widget.Ghost.DialogButton" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/on_surface_variant</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <style name="Widget.Ghost.DialogButton.Primary" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/accent</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">15sp</item>
     </style>
 </resources>

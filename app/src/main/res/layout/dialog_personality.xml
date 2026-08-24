@@ -1,32 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Phase 6.3: trait editor dialog. 8 sliders + current value labels + snapshot actions. -->
+<!--
+  The trait editor: eight sliders, then the two things you can do with the result.
+
+  The slider rows are still built in Kotlin — eight of them differ only by which field they read and
+  write, and eight near-identical blocks of XML would be worse than the loop that makes them. What
+  is here is everything that is not a slider.
+
+  The ScrollView wraps its content rather than filling the parent. Matching the parent with
+  fillViewport made the dialog a fixed tall box with the buttons stranded halfway up it and a third
+  of the screen empty underneath.
+
+  The two actions were MaterialButtons captioned with emoji, "📸 Snapshot current profile" and
+  "↩ Rollback to snapshot", which is the one templated habit the redesign had not reached. They are
+  rows in a group now, matching System exactly: icon, label, chevron where something opens.
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:layout_height="wrap_content"
+    android:scrollbars="none"
+    android:overScrollMode="never">
 
     <LinearLayout
         android:id="@+id/slider_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingHorizontal="4dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="8dp">
 
-        <!-- Slider rows will be added programmatically to keep Kotlin source compact.
-             Each row is a horizontal LinearLayout: TextView (label) + SeekBar + TextView (value). -->
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_snapshot"
-            style="@style/Widget.Material3.Button.TextButton"
+        <!--
+          Slider rows are inserted above this group, at childCount - 1. Anything added below here
+          must keep that arithmetic true in PersonalityDialog.
+        -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/ghost_personality_snapshot" />
+            android:orientation="vertical"
+            android:layout_marginTop="18dp"
+            android:background="@drawable/bg_settings_group">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_rollback"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/ghost_personality_rollback" />
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_snapshot"
+                style="@style/Widget.Ghost.Row"
+                android:text="@string/ghost_personality_snapshot"
+                android:drawableStart="@drawable/ic_camera" />
+
+            <View style="@style/Widget.Ghost.RowDivider" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_rollback"
+                style="@style/Widget.Ghost.Row"
+                android:text="@string/ghost_personality_rollback"
+                android:drawableStart="@drawable/ic_system"
+                android:drawableEnd="@drawable/ic_chevron" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

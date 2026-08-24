@@ -1,6 +1,6 @@
 package com.coxy.ghost.ui
 
-import android.app.AlertDialog
+import androidx.appcompat.app.AlertDialog
 import android.content.Context
 import android.view.Gravity
 import android.view.View
