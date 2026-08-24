@@ -348,7 +348,32 @@ class MemoryStore(context: Context) {
             val t = text.trimStart()
             return t.startsWith("FACT:", ignoreCase = true) ||
                 t.startsWith("[FACT_EXTRACTION]", ignoreCase = true) ||
-                t.startsWith("NONE", ignoreCase = true) && t.length <= 6
+                t.startsWith("NONE", ignoreCase = true) && t.length <= 6 ||
+                looksLikePromptScaffolding(t)
+        }
+
+        /**
+         * True when [text] is a block GHOST was *given*, handed back as a block she said.
+         *
+         * The retrieved-memory and sensor blocks are prepended to the prompt, so they sit in the
+         * model's context looking exactly like text in the conversation. A 1.5B parrots them.
+         * Observed live on 2026-08-24: a reply rendered in the transcript as
+         * `[MEMORY user: "Pair with the IT office TV" (2d) | you: "" (2d)]` — her own recall block,
+         * returned as her answer.
+         *
+         * This is the same failure as `[FACT_EXTRACTION]` and compounds the same way: stored, it
+         * becomes a turn, and `[MEMORY]` feeds it back next time as an example of what she says. The
+         * database was clean when this was found (zero of 188 rows), which is the argument for
+         * adding the guard now rather than after it is not.
+         *
+         * Deliberately a prefix test on the whole trimmed string. A reply that merely *mentions*
+         * `[CONTEXT` while explaining herself is a real answer and is not dropped.
+         */
+        @JvmStatic
+        fun looksLikePromptScaffolding(text: String): Boolean {
+            val t = text.trimStart()
+            return t.startsWith("[MEMORY", ignoreCase = true) ||
+                t.startsWith("[CONTEXT", ignoreCase = true)
         }
 
         /** Strip a leading "Ghost:" (case-insensitive, optional trailing space) from assistant text. */

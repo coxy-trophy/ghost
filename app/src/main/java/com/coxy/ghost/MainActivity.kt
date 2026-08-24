@@ -134,6 +134,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnCaptureChat: android.widget.ImageButton
     /** The composer's brain pill: which brain answers, said in a word. Opens the cloud settings. */
     private lateinit var brainPill: TextView
+    /** Jump back to the end of the transcript. Only present while the end is somewhere else. */
+    private lateinit var scrollLatest: View
     private var pulse: android.animation.ValueAnimator? = null
 
     private val engine: InferenceEngine by lazy { AiChat.getInferenceEngine(applicationContext) }
@@ -247,6 +249,16 @@ class MainActivity : AppCompatActivity() {
         liveOrb = findViewById(R.id.live_orb)
         btnTopBrain = findViewById(R.id.btn_top_brain)
         btnCaptureChat = findViewById(R.id.btn_capture_chat)
+        scrollLatest = findViewById(R.id.scroll_latest)
+        scrollLatest.setOnClickListener {
+            val last = (messagesRv.adapter?.itemCount ?: 0) - 1
+            if (last >= 0) messagesRv.smoothScrollToPosition(last)
+        }
+        // Dragging is the other way the distance to the end changes, and it does not go through
+        // followTranscript.
+        messagesRv.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) = updateScrollLatest()
+        })
         brainPill = findViewById(R.id.brain_pill)
         brainPill.setOnClickListener { showCloudDialog() }
         findViewById<View>(R.id.btn_voice_chat).setOnClickListener { showTab(Tab.LIVE) }
@@ -549,6 +561,31 @@ class MainActivity : AppCompatActivity() {
         // -2 rather than -1: by the time this runs the new item exists but has not been laid out.
         if (force || lm.findLastVisibleItemPosition() >= last - 2) {
             messagesRv.post { messagesRv.scrollToPosition(last) }
+        }
+        updateScrollLatest()
+    }
+
+    /**
+     * Show the way back to the end, but only when there is one.
+     *
+     * The rule above is deliberate — a new turn only pulls the view down if you were already near
+     * the bottom, so reading back is not yanked away every time a token lands. The cost of that
+     * rule is that a reply can finish several screens below where you are looking with nothing to
+     * say so, which is what this answers.
+     */
+    private fun updateScrollLatest() {
+        val lm = messagesRv.layoutManager as? LinearLayoutManager ?: return
+        val last = (messagesRv.adapter?.itemCount ?: 0) - 1
+        val away = last >= 0 && lm.findLastVisibleItemPosition() < last
+        val show = away && currentTab == Tab.CHAT
+        if (show == (scrollLatest.visibility == View.VISIBLE)) return
+        if (show) {
+            scrollLatest.alpha = 0f
+            scrollLatest.visibility = View.VISIBLE
+            scrollLatest.animate().alpha(1f).setDuration(140L).start()
+        } else {
+            scrollLatest.animate().alpha(0f).setDuration(140L)
+                .withEndAction { scrollLatest.visibility = View.GONE }.start()
         }
     }
 

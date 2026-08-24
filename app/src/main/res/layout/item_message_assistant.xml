@@ -11,6 +11,7 @@
   label was restating what the layout already said.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -18,10 +19,48 @@
     android:layout_marginTop="10dp"
     android:layout_marginBottom="18dp">
 
+    <!--
+      What stands in for the reply while there is not one yet.
+
+      An empty assistant row is added the moment you send, and tokens append into it — so between
+      pressing send and the first token arriving, this screen showed nothing at all. On a 1.5B model
+      on a T612 that gap is seconds long, and the only evidence anything had happened was that the
+      composer had emptied.
+    -->
+    <View
+        android:id="@+id/msg_thinking"
+        android:layout_width="9dp"
+        android:layout_height="9dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/bg_thinking_dot"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/msg_content"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         style="@style/TextAppearance.Ghost.Reply"
         android:textIsSelectable="true" />
+
+    <!--
+      Copy, under her reply, the way the Claude app puts it there.
+      
+      Quiet on purpose: it repeats under every turn, so at full strength it would be the most
+      frequent object in the transcript. It takes the raw text she wrote rather than what is on
+      screen, so pasting gives back the asterisks and the numbering rather than the rendered
+      bullets — what is copied is markdown, and it is going somewhere that probably wants it.
+    -->
+    <ImageButton
+        android:id="@+id/msg_copy"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginTop="2dp"
+        android:layout_marginStart="-7dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:src="@drawable/ic_copy"
+        android:scaleType="centerInside"
+        android:padding="8dp"
+        android:contentDescription="@string/ghost_copy"
+        app:tint="@color/on_surface_muted" />
 </LinearLayout>

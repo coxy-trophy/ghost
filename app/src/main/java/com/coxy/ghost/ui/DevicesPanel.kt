@@ -117,7 +117,7 @@ class DevicesPanel(
         if (phones.isEmpty()) {
             list.addView(caption("None set up. Add one with its relay address, then register the Shortcuts it should answer to."))
         }
-        for (phone in phones) list.addView(phoneRow(phone))
+        addGroup(phones.map { phoneRow(it) })
         val total = devicesByNetwork.values.sumOf { it.size }
         summary.text = if (networks.isEmpty()) {
             context.getString(R.string.ghost_devices_empty)
@@ -134,9 +134,7 @@ class DevicesPanel(
             if (all.isEmpty()) {
                 list.addView(caption("Nothing recorded here yet."))
             }
-            for (device in named.sortedByDescending { it.lastSeenMs }) {
-                list.addView(deviceRow(device, network))
-            }
+            addGroup(named.sortedByDescending { it.lastSeenMs }.map { deviceRow(it, network) })
             if (unnamed.isNotEmpty()) {
                 val open = network.id in expanded
                 list.addView(disclosure(unnamed.size, open) {
@@ -144,12 +142,48 @@ class DevicesPanel(
                     refresh()
                 })
                 if (open) {
-                    for (device in unnamed.sortedByDescending { it.lastSeenMs }) {
-                        list.addView(deviceRow(device, network))
-                    }
+                    // A second group rather than the same one: the disclosure sits between them and
+                    // says what the group below it is.
+                    addGroup(
+                        unnamed.sortedByDescending { it.lastSeenMs }.map { deviceRow(it, network) }
+                    )
                 }
             }
         }
+    }
+
+    /**
+     * One rounded container holding a run of rows, as on the System screen.
+     *
+     * Devices used to be a stack of individually rounded cards with six density pixels between
+     * them, which reads as a list of unrelated things. Grouped, a network is one object and the
+     * devices on it are its contents.
+     */
+    private fun group(): LinearLayout = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundResource(R.drawable.bg_settings_group)
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) }
+    }
+
+    /** The hairline between two rows in a [group], inset so it starts where the label does. */
+    private fun divider(): View = View(context).apply {
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 1
+        ).apply { marginStart = dp(16) }
+        setBackgroundColor(ContextCompat.getColor(context, R.color.divider))
+    }
+
+    /** [rows] in one group, separated rather than stacked. Nothing is added if there are none. */
+    private fun addGroup(rows: List<View>) {
+        if (rows.isEmpty()) return
+        val g = group()
+        rows.forEachIndexed { i, row ->
+            if (i > 0) g.addView(divider())
+            g.addView(row)
+        }
+        list.addView(g)
     }
 
     private fun networkHeader(network: KnownNetwork, isCurrent: Boolean): View {
@@ -185,12 +219,13 @@ class DevicesPanel(
     private fun deviceRow(device: KnownDevice, network: KnownNetwork): View {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            setBackgroundResource(R.drawable.bg_card)
-            val lp = LinearLayout.LayoutParams(
+            setPadding(dp(16), dp(13), dp(16), dp(13))
+            // No card and no margin: the group around this row draws the rounded container, and a
+            // row with its own background inside one is a card in a card.
+            setBackgroundResource(R.drawable.bg_settings_row)
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(6) }
-            layoutParams = lp
+            )
             isClickable = true
             setOnClickListener { rename(device) }
             setOnLongClickListener { forget(device); true }
@@ -361,11 +396,11 @@ class DevicesPanel(
     private fun phoneRow(phone: IosPhone): View {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            setBackgroundResource(R.drawable.bg_card)
+            setPadding(dp(16), dp(13), dp(16), dp(13))
+            setBackgroundResource(R.drawable.bg_settings_row)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(6) }
+            )
             isClickable = true
             setOnClickListener { editPhone(phone) }
         }

@@ -107,4 +107,7 @@
     <string name="ghost_theme_dark">Dark</string>
     <string name="ghost_theme_system">System</string>
     <string name="ghost_model">Model</string>
+    <string name="ghost_copy">Copy</string>
+    <string name="ghost_copied">Copied</string>
+    <string name="ghost_scroll_latest">Jump to latest</string>
 </resources>

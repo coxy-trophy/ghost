@@ -19,17 +19,47 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/messages"
+    <!--
+      The transcript, with a way back to the bottom of it floating over the end.
+    -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:paddingHorizontal="0dp"
-        android:paddingBottom="16dp"
-        android:clipToPadding="false"
-        android:scrollbars="none"
-        android:overScrollMode="never"
-        tools:listitem="@layout/item_message_assistant" />
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/messages"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingHorizontal="0dp"
+            android:paddingBottom="16dp"
+            android:clipToPadding="false"
+            android:scrollbars="none"
+            android:overScrollMode="never"
+            tools:listitem="@layout/item_message_assistant" />
+
+        <!--
+          Shown only when the transcript is not already at the end.
+
+          It exists because the auto-scroll is deliberately conditional: a new turn only pulls the
+          view down if you were near the bottom already, so that reading back through old messages
+          is not yanked away every time a token lands. That is the right rule and it leaves you
+          with no way back down but a long drag.
+        -->
+        <ImageButton
+            android:id="@+id/scroll_latest"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="8dp"
+            android:visibility="gone"
+            android:background="@drawable/bg_scroll_down"
+            android:src="@drawable/ic_arrow_down"
+            android:scaleType="centerInside"
+            android:padding="9dp"
+            android:contentDescription="@string/ghost_scroll_latest"
+            app:tint="@color/on_surface_variant" />
+    </FrameLayout>
 
     <HorizontalScrollView
         android:id="@+id/sensor_card"
