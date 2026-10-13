@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.coxy.ghost.platform.GhostVoiceSessionService"
+    android:hotwordDetectionService="com.coxy.ghost.platform.GhostHotwordDetectionService"
+    android:recognitionService=""
+    android:settingsActivity="com.coxy.ghost.MainActivity"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true"
+    android:supportsLocalInteraction="false" />

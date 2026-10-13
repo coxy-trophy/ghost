@@ -22,6 +22,9 @@ class GhostApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Isolated hotword process names can include framework-generated service suffixes.
+        // Only the main process hosts app UI and may read its appearance preferences.
+        if (!AppProcessPolicy.initializeUi(getProcessName(), packageName)) return
         AppCompatDelegate.setDefaultNightMode(MainActivity.savedNightMode(this))
     }
 }

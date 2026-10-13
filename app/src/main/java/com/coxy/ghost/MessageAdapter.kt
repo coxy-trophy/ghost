@@ -57,7 +57,7 @@ class MessageAdapter(
             // would put an empty string on the clipboard.
             holder.itemView.findViewById<View>(R.id.msg_copy).apply {
                 visibility = if (message.content.isEmpty()) View.GONE else View.VISIBLE
-                setOnClickListener { copy(it, message.content) }
+                setOnClickListener { copy(it, com.coxy.ghost.action.ActionRunner.forDisplay(message.content)) }
             }
         }
 
@@ -68,7 +68,7 @@ class MessageAdapter(
             // The quote colour comes from the palette rather than from Markup, so a quoted line
             // dims correctly in both light and dark instead of against one hardcoded ground.
             textView.text = com.coxy.ghost.ui.Markup.render(
-                message.content,
+                if (holder is AssistantMessageViewHolder) com.coxy.ghost.action.ActionRunner.forDisplay(message.content) else message.content,
                 androidx.core.content.ContextCompat.getColor(
                     textView.context, com.coxy.ghost.R.color.on_surface_variant
                 )

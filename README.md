@@ -58,16 +58,25 @@ cd ghost
 export JAVA_HOME=/path/to/jdk-17
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 
+# Required native speech library, even if you do not install a voice on the device.
+# Requires zsh, curl and unzip. No connected phone is needed.
+./tools/install_piper_voice.sh --aar-only
+
+# Hash-verified compile-only platform definitions for the opt-in hotword probe.
+python3 tools/install_system_api_stubs.py
+
 ./gradlew :app:assembleDebug
 ```
 
 If you forgot `--recursive`, the CMake step will tell you so by name rather than failing somewhere
 confusing: `git submodule update --init --recursive`.
 
-**Then you need weights.** Nothing is bundled. Put a Qwen2.5-1.5B-Instruct Q4_K_M GGUF on the
+**Then you need weights.** No local LLM weights are bundled. Put a Qwen2.5-1.5B-Instruct Q4_K_M GGUF on the
 device and point GHOST at it from System → Model.
 
-**Optional, for the neural voice:** `./tools/install_piper_voice.sh`. Read `THIRD_PARTY.md` first if
+The speech AAR above is a required compile dependency. The voice model is optional.
+
+**Optional, for the neural voice on the device:** `./tools/install_piper_voice.sh`. Read `THIRD_PARTY.md` first if
 you plan to distribute a build — espeak-ng is compiled into that library and it is GPL-3.0.
 
 **Optional, for the cloud brain:** copy `keys.properties.example` to `keys.properties` and add an
@@ -107,3 +116,32 @@ kept in preference to tidier code that would lose them.
 MIT — see `LICENSE`. It began as llama.cpp's `examples/llama.android` sample, which is also MIT.
 
 Third-party components and one real licensing trap are in `THIRD_PARTY.md`.
+
+
+### Ghost in the Nocturne island
+
+The new voice bridge drives Nocturne's listening, thinking and speaking animation. Hold the island
+for one request; Cancel stops capture, generation and speech. In Ghost, System → **Hey Ghost · wake
+word** controls opt-in local keyword listening. Say Hey Ghost, wait for Listening, then speak;
+continuous wake-plus-command audio handoff is not implemented yet. The keyword model stays local and ambient audio is
+not transcribed or saved. This replaces the disabled old classifier. A real acoustic wake, ASR, cloud request, app launch
+and rearm have been observed; broad reliability and continuous-command handoff remain unverified. See [protocol, setup and validation status](docs/ghost-island-protocol.md).
+
+The keyword model can be reproduced with `tools/install_keyword_model.sh`. The current source passes
+367 JVM tests. The phone was migrated with explicit approval and a full backup to a persistent
+personal signing identity; subsequent releases use normal same-key updates. The original v65 key
+was not recovered. Preserve the signing directory and always run the deployment compatibility check.
+
+
+The current development build also recovers an active conversation into Ghost's overlay if the
+Nocturne surface disappears. The session continues without restarting the microphone or model.
+`python3 tools/package_release.py --create-key` creates a persistent local signing identity and
+builds a verified optimized APK; it does not replace the missing original signing key or install
+anything. Deployment now requires a read-only signature/package/version preflight:
+`./tools/deploy_system_app.sh --check`. See the protocol document for details.
+
+Local personal-data tools and the platform feasibility work are documented in
+[local notifications](docs/local-notifications.md), [contacts and capability onboarding](docs/local-contacts-and-capabilities.md),
+and [the opt-in platform voice probe](docs/platform-voice-probe.md). Notification/contact bodies stay
+out of the model and memory in these initial local viewers. The system hotword sandbox is an
+initialization probe only; it does not establish indicator-free recognition.

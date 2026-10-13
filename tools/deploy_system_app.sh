@@ -38,16 +38,23 @@
 #
 # Usage:
 #   ./deploy_system_app.sh                # back up app data, replace the APK, then reboot
+#   ./deploy_system_app.sh --check        # read-only package/version/signature check, then exit
 #   ./deploy_system_app.sh --libs         # also re-extract arm64 native libs from the APK
 #   ./deploy_system_app.sh --no-reboot    # stage only; PM will not see the change until a reboot
 #   ./deploy_system_app.sh --no-backup    # skip the app-data backup (not recommended)
 
 set -e
 
-ADB="${ADB:-${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb}"
+if [ -z "$ADB" ]; then
+  if command -v adb >/dev/null 2>&1; then
+    ADB=adb
+  else
+    ADB="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
+  fi
+fi
 PKG=com.coxy.ghost
 SCRIPT_DIR="${0:A:h}"
-APK="$SCRIPT_DIR/../app/build/outputs/apk/debug/app-debug.apk"
+APK="${GHOST_APK:-$SCRIPT_DIR/../app/build/outputs/apk/debug/app-debug.apk}"
 MODULE=/data/adb/modules/ghost_systemapp/system/priv-app/GHOST
 # Staged through /data/local/tmp rather than /sdcard/Download.
 #
@@ -60,11 +67,13 @@ STAGE=/data/local/tmp/GHOST-new.apk
 
 BACKUP_DIR="${GHOST_BACKUP_DIR:-$HOME/ghost-backups/appdata}"
 
+CHECK_ONLY=0
 DO_LIBS=0
 DO_REBOOT=1
 DO_BACKUP=1
 for arg in "$@"; do
   case "$arg" in
+    --check) CHECK_ONLY=1 ;;
     --libs) DO_LIBS=1 ;;
     --no-reboot) DO_REBOOT=0 ;;
     --no-backup) DO_BACKUP=0 ;;
@@ -74,8 +83,12 @@ done
 
 [ -f "$APK" ] || { echo "No APK at $APK — run ./gradlew :app:assembleDebug first"; exit 1; }
 
+# Verify compatibility BEFORE backups, pushes, force-stop, module writes or reboot.
+python3 "$SCRIPT_DIR/check_apk_update.py" --apk "$APK" --adb "$ADB"
+[ "$CHECK_ONLY" = "1" ] && exit 0
+
 echo "Local APK:  $APK ($(wc -c < "$APK" | tr -d ' ') bytes)"
-LOCAL_MD5=$(md5 -q "$APK")
+LOCAL_MD5=$(python3 -c 'import hashlib,sys; h=hashlib.md5(); f=open(sys.argv[1],"rb"); [h.update(b) for b in iter(lambda:f.read(1048576),b"")]; print(h.hexdigest())' "$APK")
 echo "Local md5:  $LOCAL_MD5"
 echo "Installed:  $($ADB shell "dumpsys package $PKG | grep -E 'versionCode|versionName' | head -2" | tr -d '\r' | tr '\n' ' ')"
 echo

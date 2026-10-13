@@ -51,3 +51,10 @@ tools/kws_data/
 # Fetched by tools/install_piper_voice.sh from k2-fsa's own release. 49 MB of native
 # binaries does not belong in git history.
 app/libs/*.aar
+
+# Local Python verification tools
+__pycache__/
+*.pyc
+
+# Generated compile-only AOSP definitions, verified by tools/install_system_api_stubs.py
+app/libs/android-system-api-34-stubs.jar

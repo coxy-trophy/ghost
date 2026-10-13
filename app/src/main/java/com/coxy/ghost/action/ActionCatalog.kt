@@ -25,6 +25,14 @@ object ActionCatalog {
 
     private val catalog = mapOf(
         // Tier 0 — read-only
+        "lookup_contact" to Entry(
+            tier = ActionTier.TIER_0_READ_ONLY, requiredParams = listOf("query"),
+            description = "Open local contact lookup by name or number; matches stay private and no call or message is sent"
+        ),
+        "read_notifications" to Entry(
+            tier = ActionTier.TIER_0_READ_ONLY,
+            description = "Open the private local notification viewer; contents are not supplied to the assistant model"
+        ),
         "get_battery" to Entry(
             tier = ActionTier.TIER_0_READ_ONLY,
             description = "Read current battery level and temperature"
@@ -230,6 +238,22 @@ object ActionCatalog {
             errors += "missing one of ${entry.anyOfParams.joinToString("/") { "'$it'" }}"
         }
         return errors
+    }
+
+    /** Concrete details for the notification that approves these exact arguments. */
+    fun confirmationDetails(action: Action): String = buildString {
+        append(describe(action.id))
+        for ((key, value) in action.params.toSortedMap()) {
+            append("\n")
+            append(when (key) {
+                "package" -> "App package"
+                "number" -> "Recipient"
+                "message" -> "Message"
+                else -> key
+            })
+            append(": ")
+            append(value)
+        }
     }
 
     /** Human-readable description of an action. */

@@ -5,7 +5,6 @@ import android.util.Log
 import com.arm.aichat.InferenceEngine
 import com.arm.aichat.UnsupportedArchitectureException
 import com.arm.aichat.internal.InferenceEngineImpl.Companion.getInstance
-import dalvik.annotation.optimization.FastNative
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -76,37 +75,30 @@ internal class InferenceEngineImpl private constructor(
     }
 
     /**
-     * JNI methods
+     * Use ordinary JNI transitions: loading, prefill, decoding and teardown can run for
+     * seconds. FastNative prevents ART from suspending this thread for GC and can stall
+     * unrelated allocations (including AudioRecord startup) for the entire native call.
+     * https://developer.android.com/ndk/guides/jni-tips#fast_critical_native
      * @see ai_chat.cpp
      */
-    @FastNative
     private external fun init(nativeLibDir: String)
 
-    @FastNative
     private external fun load(modelPath: String): Int
 
-    @FastNative
     private external fun prepare(): Int
 
-    @FastNative
     private external fun systemInfo(): String
 
-    @FastNative
     private external fun benchModel(pp: Int, tg: Int, pl: Int, nr: Int): String
 
-    @FastNative
     private external fun processSystemPrompt(systemPrompt: String): Int
 
-    @FastNative
     private external fun processUserPrompt(userPrompt: String, predictLength: Int): Int
 
-    @FastNative
     private external fun generateNextToken(): String?
 
-    @FastNative
     private external fun unload()
 
-    @FastNative
     private external fun shutdown()
 
     private val _state =

@@ -27,3 +27,9 @@
     public static int v(...);
     public static int d(...);
 }
+
+# sherpa's AAR has empty consumer rules. Native code reflects over these model/config classes;
+# retaining only native method names does not preserve the Java fields read from JNI.
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+# JNI looks up invoke(float[]) with a boxed Integer return exactly; R8 must not specialize it.
+-keep class com.coxy.ghost.perception.SamplesCallback { *; }

@@ -49,6 +49,12 @@ import com.coxy.ghost.cloud.CloudRouter
 import com.coxy.ghost.initiative.InitiativeManager
 import com.coxy.ghost.personality.PersonalityRepository
 import com.coxy.ghost.personality.PersonalityTranslator
+import com.coxy.ghost.ipc.GhostIsland
+import com.coxy.ghost.perception.GhostVoice
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -78,6 +84,8 @@ class GhostService : LifecycleService() {
     // Phase 4.5: nearby BLE devices + radio state (call, signal, NFC).
     private var bleScanner: BleScanner? = null
     private var radioWatcher: RadioWatcher? = null
+    private val foregroundAccess = ForegroundAccess(ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+    private fun foregroundAllows(type: Int) = Build.VERSION.SDK_INT < 34 || foregroundAccess.has(type)
     private var micListener: MicListener? = null
     private var cameraCapture: CameraCapture? = null
     private var retention: RetentionManager? = null
@@ -117,6 +125,135 @@ class GhostService : LifecycleService() {
     @Volatile private var lastThermalStatus: Int = 0
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
 
+    private var voiceJob: Job? = null
+    private var summonOverlay: com.coxy.ghost.ui.SummonOverlay? = null
+    private val summonController = com.coxy.ghost.perception.SummonController()
+    private var summonRenderJob: Job? = null
+    private var summonSession = ""
+
+    private fun dismissSummon(cancel: Boolean = true) {
+        summonRenderJob?.cancel(); summonRenderJob = null
+        summonOverlay?.hide()
+        summonController.onDismissed(android.os.SystemClock.elapsedRealtime())
+        val matching = summonSession.isNotEmpty() && summonSession == GhostIsland.session
+        summonSession = ""
+        if (cancel && matching) cancelIslandCommand()
+    }
+
+    private fun triggerSummon(source: com.coxy.ghost.perception.SummonSource) {
+        lifecycleScope.launch(Dispatchers.Main) {
+            if (GhostIsland.active() || voiceJob?.isActive == true) return@launch
+            if (ContextStore.state.value.callState in setOf(com.coxy.ghost.perception.CallState.RINGING, com.coxy.ghost.perception.CallState.IN_CALL)) return@launch
+            if (summonController.onSummon(source, android.os.SystemClock.elapsedRealtime()) == com.coxy.ghost.perception.SummonDecision.IGNORE) return@launch
+            val island = GhostIsland.surfaceAvailable()
+            if (island) {
+                dismissSummon(cancel = false)
+                startIslandCommand("")
+                return@launch
+            }
+            val session = startIslandCommand("", useIsland = false) ?: return@launch
+            if (!presentSummonOverlay(session)) cancelIslandCommand()
+        }
+    }
+
+    /** Attach controls to an existing interaction. Never restarts capture or generation. */
+    private fun presentSummonOverlay(session: String): Boolean {
+        if (session != GhostIsland.session) return false
+        val overlay = summonOverlay ?: com.coxy.ghost.ui.SummonOverlay(applicationContext).also { summonOverlay = it }
+        overlay.show(onDismiss = { dismissSummon() }, onSpeak = {
+            // Busy taps belong to this surface, not a rejected new island request.
+            if (!GhostIsland.active() && voiceJob?.isActive != true) {
+                val next = startIslandCommand("", useIsland = false)
+                if (next != null) summonSession = next
+            }
+        })
+        if (!overlay.isShowing) {
+            dismissSummon(cancel = false)
+            return false
+        }
+        summonSession = session
+        // Clear any previous conversation before the next frame, including while locked.
+        overlay.render(ContextStore.state.value)
+        summonRenderJob?.cancel()
+        summonRenderJob = lifecycleScope.launch {
+            var idleSince = 0L
+            while (overlay.isShowing) {
+                if (summonSession != GhostIsland.session) { dismissSummon(cancel = false); break }
+                overlay.render(ContextStore.state.value)
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (GhostIsland.active()) idleSince = 0L
+                else if (idleSince == 0L) idleSince = now
+                else if (now - idleSince > 6000) { dismissSummon(cancel = false); break }
+                delay(120)
+            }
+        }
+        return true
+    }
+
+    private fun monitorIslandSurface() {
+        lifecycleScope.launch(Dispatchers.Main) {
+            while (true) {
+                delay(1000)
+                val session = GhostIsland.session
+                if (GhostIsland.recoverSurface(session) && !presentSummonOverlay(session)) {
+                    // No control surface could be attached: stop instead of leaving an unseen mic.
+                    cancelIslandCommand()
+                    Log.w(TAG, "Lost island surface and could not attach fallback; interaction cancelled")
+                }
+            }
+        }
+    }
+
+    private fun captureBlockReason(): String? = when {
+        !foregroundAllows(ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) -> "foreground_microphone"
+        voiceJob?.isActive == true -> "voice_busy"
+        GhostIsland.state in setOf("THINKING", "SPEAKING") -> "island_busy"
+        ContextStore.state.value.callState in setOf(com.coxy.ghost.perception.CallState.RINGING, com.coxy.ghost.perception.CallState.IN_CALL) -> "call_active"
+        else -> null
+    }
+
+    private fun configureMic(listener: MicListener): MicListener = listener.also {
+        it.captureBlockReason = { captureBlockReason() }
+        it.canCapture = { captureBlockReason() == null }
+        it.onWake = { triggerSummon(com.coxy.ghost.perception.SummonSource.WAKE) }
+        it.start()
+    }
+    private fun voiceError(code: String, detail: String, session: String = GhostIsland.session) {
+        GhostIsland.update(phase = "ERROR", code = code, detail = detail, expected = session)
+        lifecycleScope.launch {
+            delay(3500)
+            if (GhostIsland.session == session && GhostIsland.state == "ERROR") micListener?.resumeIdle()
+        }
+    }
+    private fun startIslandCommand(request: String, useIsland: Boolean = true): String? {
+        if (ContextStore.state.value.callState in setOf(com.coxy.ghost.perception.CallState.RINGING, com.coxy.ghost.perception.CallState.IN_CALL)) {
+            GhostIsland.reject(request, "CALL_ACTIVE", "Try again after your call")
+            return null
+        }
+        if (GhostIsland.active() || voiceJob?.isActive == true) {
+            GhostIsland.reject(request, "BUSY", "Ghost is already responding. Try again shortly.")
+            if (request.isEmpty()) micListener?.resumeIdle()
+            return null
+        }
+        if (!foregroundAllows(ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)) startForegroundCompat()
+        if (!foregroundAllows(ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)) {
+            GhostIsland.reject(request, "MIC_UNAVAILABLE", "Open Ghost to enable microphone access")
+            return null
+        }
+        GhostVoice.stop()
+        val listener = micListener ?: return null
+        val session = GhostIsland.begin(request, useIsland)
+        listener.startSingleCommand()
+        return session
+    }
+    private fun cancelIslandCommand() {
+        dismissSummon(cancel = false)
+        voiceJob?.cancel()
+        GhostVoice.stop(); micListener?.cancelCapture()
+        GhostIsland.update(phase = "OFF", mic = "OFF", reply = "", heard = "", audio = 0f)
+        micListener?.resumeIdle()
+    }
+
     override fun onCreate() {
         super.onCreate()
         isRunning = true
@@ -136,8 +273,16 @@ class GhostService : LifecycleService() {
         // retention (D4). Each runs on its own thread and only writes ContextStore — never the
         // engine. MicListener.start() is a no-op if RECORD_AUDIO isn't granted yet (it logs +
         // sets micAvailable=false); ACTION_REFRESH_PERCEPTION re-inits it once granted.
+        GhostIsland.start(this)
+        monitorIslandSurface()
+        GhostIsland.onControl = { command, session, request ->
+            if (command == "START") startIslandCommand(request)
+            else if (command == "CANCEL" && (session == GhostIsland.session || (request.isNotEmpty() && request == GhostIsland.requestId))) cancelIslandCommand()
+        }
+        GhostVoice.init(applicationContext)
+        lifecycleScope.launch { GhostVoice.enabled = GhostPrefs.isVoiceEnabled(applicationContext) }
         retention = RetentionManager(applicationContext)
-        micListener = MicListener(applicationContext, retention).also { it.start() }
+        micListener = configureMic(MicListener(applicationContext, retention))
         cameraCapture = CameraCapture(applicationContext, retention)
 
         // Phase 6: initialise the on-device sentence embedder (copies the ~22 MB model asset to
@@ -219,9 +364,15 @@ class GhostService : LifecycleService() {
         // through the engine (Siri-style: GHOST answers the spoken command), streaming the reply to
         // ContextState.voiceResponse for MainActivity to render. The EngineGate single-flight guard
         // keeps this from racing a typed message in the Activity (the engine is single-threaded).
-        lifecycleScope.launch(Dispatchers.Default) {
-            var lastSeq = 0L
+        lifecycleScope.launch {
+            var lastSeq = ContextStore.state.value.voiceCommandSeq
+            var callBlocked = false
             ContextStore.state.collect { cs ->
+                val inCall = cs.callState in setOf(com.coxy.ghost.perception.CallState.RINGING, com.coxy.ghost.perception.CallState.IN_CALL)
+                if (inCall && !callBlocked) cancelIslandCommand()
+                if (!inCall && callBlocked && !GhostIsland.active()) micListener?.resumeIdle()
+                callBlocked = inCall
+                if (inCall) { lastSeq = cs.voiceCommandSeq; return@collect }
                 if (cs.voiceCommandSeq == lastSeq) return@collect
                 // Advance the seq before deciding whether we can run it: a command we cannot use
                 // must not leave this observer pinned to a stale seq, and a drop that is logged is
@@ -232,7 +383,35 @@ class GhostService : LifecycleService() {
                     Log.w(TAG, "voice command seq ${cs.voiceCommandSeq} carried no text — dropped")
                     return@collect
                 }
-                launch { runVoiceCommand(cmd) }
+                if (GhostIsland.state != "THINKING") return@collect
+                val session = GhostIsland.session
+                if (voiceJob?.isActive == true) {
+                    voiceError("BUSY", "Ghost is finishing the previous request")
+                } else {
+                    val deadline = VoiceResponseDeadline(android.os.SystemClock.elapsedRealtime())
+                    val job = launch(Dispatchers.Default) { runVoiceCommand(cmd, session, deadline) }
+                    voiceJob = job
+                    // Sibling of inference: timeout UI must not await non-cooperative JNI work.
+                    lifecycleScope.launch(Dispatchers.Main) {
+                        while (job.isActive && voiceJob === job && GhostIsland.session == session) {
+                            delay(250)
+                            if (voiceJob !== job || GhostIsland.session != session) break
+                            if (job.isActive && deadline.expired(android.os.SystemClock.elapsedRealtime())) {
+                                GhostVoice.stop()
+                                micListener?.cancelCapture()
+                                voiceError("RESPONSE_TIMEOUT", "Ghost took too long to respond. Try again.", session)
+                                job.cancel()
+                                // EngineGate remains owned until runVoiceCommand actually exits.
+                                break
+                            }
+                        }
+                    }
+                    job.invokeOnCompletion {
+                        lifecycleScope.launch {
+                            if (voiceJob === job && GhostIsland.state == "OFF" && MicListener.mode == MicListener.MicMode.OFF) micListener?.resumeIdle()
+                        }
+                    }
+                }
             }
         }
 
@@ -260,6 +439,12 @@ class GhostService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        // A visible activity or notification interaction may now qualify for capture.
+        if (intent != null && intent.action != ACTION_STOP) {
+            val hadMicrophone = foregroundAllows(ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            startForegroundCompat()
+            if (!hadMicrophone && foregroundAllows(ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)) micListener?.resumeIdle()
+        }
         when (intent?.action) {
             ACTION_STOP -> {
                 Log.i(TAG, "Stop requested")
@@ -281,7 +466,7 @@ class GhostService : LifecycleService() {
                 radioWatcher?.stop()
                 radioWatcher = RadioWatcher(applicationContext).also { it.start() }
                 micListener?.stop()
-                micListener = MicListener(applicationContext, retention).also { it.start() }
+                micListener = configureMic(MicListener(applicationContext, retention))
                 if (cameraCapture == null) cameraCapture = CameraCapture(applicationContext, retention)
                 startForegroundCompat()
             }
@@ -290,7 +475,7 @@ class GhostService : LifecycleService() {
                 // vision-related query. The frame metadata lands in ContextStore asynchronously.
                 val facing = intent.getStringExtra(EXTRA_FACING) ?: CameraCapture.FACING_BACK
                 Log.i(TAG, "Capture frame requested (facing=$facing)")
-                cameraCapture?.captureOnDemand(facing)
+                if (foregroundAllows(ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)) cameraCapture?.captureOnDemand(facing)
             }
             ACTION_RELOAD_PERSONALITY -> {
                 // Phase 6.3: the user edited the active personality profile. setSystemPrompt is
@@ -316,6 +501,11 @@ class GhostService : LifecycleService() {
                     micListener?.setEnabled(next)
                     Log.i(TAG, "Mic latch ${if (next) "OPEN" else "OFF"}")
                 }
+            }
+            ACTION_SUMMON -> triggerSummon(com.coxy.ghost.perception.SummonSource.fromString(intent.getStringExtra(EXTRA_SOURCE)))
+            ACTION_DISMISS_SUMMON -> dismissSummon()
+            ACTION_SET_WAKE -> {
+                micListener?.setWakeEnabled(intent.getBooleanExtra(EXTRA_ENABLED, false))
             }
             ACTION_PTT_DOWN -> {
                 // Push-to-talk pressed. Momentary and never persisted — the mic is open exactly as
@@ -355,6 +545,10 @@ class GhostService : LifecycleService() {
                 }
             }
             ACTION_CAPTURE_KWS -> {
+                if (!foregroundAllows(ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)) {
+                    Log.w(TAG, "KWS capture deferred: open Ghost to enable microphone access")
+                    return START_STICKY
+                }
                 // Phase 5.2 retraining aid: record a wake-word training clip through the same
                 // AudioRecord path the detector runs on. MicListener owns the mic, so pause it for
                 // the duration and resume afterwards (two MIC-source clients are not reliable here).
@@ -505,6 +699,10 @@ class GhostService : LifecycleService() {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy — releasing wake lock (engine is a process singleton; not destroyed here)")
+        dismissSummon(cancel = false)
+        cancelIslandCommand()
+        GhostIsland.close()
+        com.coxy.ghost.perception.wakeword.KeywordWake.releaseCache()
         perception?.stop()
         perception = null
         bleScanner?.stop()
@@ -630,15 +828,19 @@ class GhostService : LifecycleService() {
      * rejects the command if a typed message is already generating (and vice versa) — the engine is
      * single-threaded and two concurrent sendUserPrompt calls would corrupt the conversation.
      */
-    private suspend fun runVoiceCommand(cmd: String) {
+    private suspend fun runVoiceCommand(cmd: String, session: String, deadline: VoiceResponseDeadline) {
         if (!EngineGate.tryAcquire()) {
-            Log.i(TAG, "engine busy — voice command dropped: $cmd")
+            voiceError("BUSY", "Ghost is already responding. Try again shortly.", session)
+            Log.i(TAG, "engine busy — voice command dropped")
             // Surface it in the chat so the spoken command isn't left as a silent empty bubble.
             ContextStore.update { it.copy(voiceResponse = "(skipped — GHOST was already responding)") }
             return
         }
         try {
-            if (cameraCapture != null && VisionTrigger.hasCameraPermission(this) &&
+            currentCoroutineContext().ensureActive()
+            GhostIsland.update(phase = "THINKING", expected = session)
+            if (foregroundAllows(ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA) &&
+                cameraCapture != null && VisionTrigger.hasCameraPermission(this) &&
                 VisionTrigger.wantsVision(cmd)
             ) {
                 cameraCapture?.captureOnDemand(CameraCapture.FACING_BACK)
@@ -678,8 +880,11 @@ class GhostService : LifecycleService() {
             Log.i(TAG, "voice command -> inference: $cmd")
             val sb = StringBuilder()
             suspend fun stream(p: String) =
-                cloudRouter.route(p, currentSystemPrompt, predictLength = 512).collect { token ->
+                cloudRouter.route(p, currentSystemPrompt, predictLength = 512, userText = cmd).collect { token ->
+                    currentCoroutineContext().ensureActive()
+                    if (token.isNotBlank()) deadline.response()
                     sb.append(token)
+                    GhostIsland.update(reply = sb.toString(), expected = session)
                     ContextStore.update { it.copy(voiceResponse = sb.toString()) }
                 }
 
@@ -707,6 +912,8 @@ class GhostService : LifecycleService() {
 
             // Phase 7: parse any structured actions from the reply, execute immediate ones, and
             // surface Tier 3 actions for confirmation. Also strip the deprecated "Ghost:" prefix.
+            currentCoroutineContext().ensureActive()
+            if (GhostIsland.session != session) return
             val finalReply = stripGhostPrefix(ActionRunner.run(actionExecutor, sb.toString()))
                 .let { if (nudgeAck != null) "$it\n\n$nudgeAck" else it }
                 .let { if (namingAck != null) "$it\n$namingAck" else it }
@@ -714,17 +921,30 @@ class GhostService : LifecycleService() {
             // Said out loud, because this reply came from someone talking rather than typing. The
             // action lines are stripped inside speak() — reading "[ACTION ok launch_app: opened
             // WhatsApp]" aloud would be GHOST narrating her own plumbing.
-            com.coxy.ghost.perception.GhostVoice.speak(finalReply)
+            currentCoroutineContext().ensureActive()
+            GhostIsland.update(reply = finalReply, expected = session)
+            deadline.finish()
+            GhostVoice.speak(finalReply, onState = { speaking ->
+                if (GhostIsland.session == session) {
+                    GhostIsland.update(phase = if (speaking) "SPEAKING" else "OFF", audio = 0f, expected = session)
+                    if (!speaking) micListener?.resumeIdle()
+                }
+            })
 
             // After the reply completes (engine idle): persist the turn pair for future recall.
+            currentCoroutineContext().ensureActive()
             memoryStore.remember("user", cmd, "voice")
             memoryStore.remember("assistant", ActionRunner.withoutActionLines(finalReply), "voice")
             memoryStore.prune()
             // Phase 6.2: extract durable facts from the voice exchange.
             factExtractor.extract(cmd, finalReply, "voice")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            voiceError("GENERATION_FAILED", "Ghost could not finish. Try again.", session)
             Log.w(TAG, "voice inference failed", e)
         } finally {
+            deadline.finish()
             EngineGate.release()
         }
     }
@@ -747,38 +967,32 @@ class GhostService : LifecycleService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val summonPi = PendingIntent.getService(this, 1,
+            Intent(this, GhostService::class.java).setAction(ACTION_SUMMON)
+                .putExtra(EXTRA_SOURCE, "notif"),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val notification: Notification = androidx.core.app.NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.ghost_notif_title))
             .setContentText(getString(R.string.ghost_notif_text))
             .setSmallIcon(R.drawable.outline_send_24)
             .setOngoing(true)
+            .addAction(0, getString(R.string.ghost_notif_summon), summonPi)
             .addAction(0, getString(R.string.ghost_notif_stop), stopPi)
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // The manifest declares specialUse|location, but the location type requires
-            // ACCESS_FINE_LOCATION to be granted at startForeground time (else SecurityException).
-            // On the boot-started path the user hasn't granted it yet → start specialUse-only;
-            // MainActivity sends ACTION_REFRESH_PERCEPTION once the permission is granted, which
-            // re-runs startForegroundCompat (adding the location type) and restarts perception.
-            val hasFine = ContextCompat.checkSelfPermission(
-                this, Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-            val hasMic = ContextCompat.checkSelfPermission(
-                this, Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-            val hasCam = ContextCompat.checkSelfPermission(
-                this, Manifest.permission.CAMERA
-            ) == PackageManager.PERMISSION_GRANTED
-            // Each FGS type requires its runtime permission granted at startForeground time (else
-            // SecurityException). Boot path runs specialUse-only; ACTION_REFRESH_PERCEPTION adds the
-            // others once granted. Mic is continuous (D2); camera is on-demand but the type must be
-            // declared up-front to ever open the camera from the FGS.
-            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            if (hasFine) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            if (hasMic) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            if (hasCam) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-            startForeground(NOTIF_ID, notification, types)
+            // Runtime permission grants do not establish while-in-use eligibility at boot.
+            // Establish specialUse first, then independently ask Android for each capture type.
+            val requested = listOf(
+                Manifest.permission.RECORD_AUDIO to ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                Manifest.permission.ACCESS_FINE_LOCATION to ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
+                Manifest.permission.CAMERA to ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA,
+            ).filter { (permission, _) ->
+                ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+            }.map { it.second }
+            foregroundAccess.promote(requested,
+                start = { types -> startForeground(NOTIF_ID, notification, types) },
+                denied = { type, failure -> Log.w(TAG, "Foreground type $type deferred until eligible user interaction", failure) })
         } else {
             startForeground(NOTIF_ID, notification)
         }
@@ -794,10 +1008,15 @@ class GhostService : LifecycleService() {
         private const val PERCEPTION_LOG_INTERVAL_MS = 60 * 1000L
 
         const val ACTION_STOP = "com.coxy.ghost.action.STOP"
+        const val ACTION_REFRESH_FOREGROUND = "com.coxy.ghost.action.REFRESH_FOREGROUND"
         const val ACTION_REFRESH_PERCEPTION = "com.coxy.ghost.action.REFRESH_PERCEPTION"
         const val ACTION_RELOAD_PERSONALITY = "com.coxy.ghost.action.RELOAD_PERSONALITY"
         const val ACTION_CAPTURE_FRAME = "com.coxy.ghost.action.CAPTURE_FRAME"
         const val ACTION_TOGGLE_MIC = "com.coxy.ghost.action.TOGGLE_MIC"
+        const val ACTION_SUMMON = "com.coxy.ghost.action.SUMMON"
+        const val ACTION_DISMISS_SUMMON = "com.coxy.ghost.action.DISMISS_SUMMON"
+        const val EXTRA_SOURCE = "source"
+        const val ACTION_SET_WAKE = "com.coxy.ghost.action.SET_WAKE"
         const val ACTION_PTT_DOWN = "com.coxy.ghost.action.PTT_DOWN"
         const val ACTION_PTT_UP = "com.coxy.ghost.action.PTT_UP"
         const val ACTION_KILL = "com.coxy.ghost.action.KILL"

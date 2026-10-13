@@ -13,6 +13,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.coxy.ghost.ipc.GhostIsland
 import com.coxy.ghost.GhostPrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,39 +21,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
-/**
- * Microphone input, driven explicitly by the user — never ambiently.
- *
- * **The always-on "Hey Ghost" spotter was removed on 2026-08-13.** It fired on ordinary room noise
- * roughly once every 30 seconds (measured: GHOST.md v0.11.3), and every false fire transcribed
- * whatever was in the room and ran it through the engine as a command. The damage was not just the
- * audible HAL blip — 31 of 37 stored voice turns were ambient speech and TV dialogue ("Where the
- * princess to Amiga receiving"), which then came back through `[MEMORY]` as things Coxy had
- * supposedly said. The spotter model itself saturates at probability 1.000 on room audio and cannot
- * be fixed by tuning, only by retraining, so leaving it armed had no upside.
- *
- * The wake-word classes are kept ([com.coxy.ghost.perception.wakeword]) — the detector, the trigger,
- * the sample recorder and the scorer are what a retrained model would be validated with. Nothing in
- * this class starts them any more.
- *
- * Three modes, all entered deliberately:
- *  - [MicMode.OFF] — the default. No recognizer, no audio capture, nothing listening.
- *  - [MicMode.PUSH_TO_TALK] — held for the duration of a press. [startPushToTalk] opens the
- *    recognizer, [stopPushToTalk] closes it and dispatches whatever was said. No wake word: if the
- *    user is holding the button, they mean it.
- *  - [MicMode.OPEN] — a latch for open conversation while Live mode is on. Every final utterance is
- *    a command. This is the mode that makes the recognizer restart audibly on this device; that is
- *    expected here and absent everywhere else, which was the Phase 5.2 design intent all along.
- *
- * [SpeechRecognizer] must be created and driven from the main thread — it enforces
- * `checkIsCalledFromMainThread` — so every method here hops to [mainHandler].
- */
+/** Explicit command capture plus an opt-in local keyword gate. Ambient audio never enters ASR. */
 class MicListener(
     private val ctx: Context,
     private val retention: RetentionManager? = null,
 ) {
 
-    enum class MicMode { OFF, PUSH_TO_TALK, OPEN }
+    enum class MicMode { OFF, PUSH_TO_TALK, OPEN, WAKE_WORD }
 
     companion object {
         private const val TAG = "MicListener"
@@ -131,21 +106,121 @@ class MicListener(
 
     @Volatile private var pttHeld: Boolean = false
     private var consecutiveErrors: Int = 0
+    @Volatile private var generation = 0L
+    private var oneShot = false
+    @Volatile private var stopped = false
+    private var wake: com.coxy.ghost.perception.wakeword.KeywordWake? = null
+    var onWake: (() -> Unit)? = null
+    var canCapture: () -> Boolean = { true }
+    var captureBlockReason: () -> String? = { if (canCapture()) null else "capture_blocked" }
+    fun wakeEnabled() = GhostPrefs.isWakeWordEnabled(ctx)
+    fun setWakeEnabled(enabled: Boolean) {
+        GhostPrefs.setWakeWordEnabled(ctx, enabled)
+        mainHandler.post { if (!GhostIsland.active()) resumeIdle() }
+    }
+    fun startSingleCommand() {
+        mainHandler.post {
+            if (stopped) return@post
+            mainHandler.removeCallbacksAndMessages(token)
+            teardownRecognizer(); pttHeld = false; oneShot = true
+            val mine = generation
+            val previous = wake; wake = null
+            val capture = {
+                mainHandler.post {
+                    if (!stopped && generation == mine && oneShot) {
+                        if (!canCapture()) failCapture("MIC_UNAVAILABLE", "Open Ghost to enable microphone access")
+                        else if (!hasPermission()) failCapture("MIC_PERMISSION", "Enable microphone permission in Ghost")
+                        else {
+                            mode = MicMode.PUSH_TO_TALK; isRunning = true
+                            ContextStore.update { it.copy(micState = MicState.SILENT, transcriptSnippet = null) }
+                            startRecognizer(OPEN_SILENCE_MS)
+                            val recording = generation
+                            mainHandler.postDelayed({ if (oneShot && generation == recording) failCapture("TIMEOUT", "I didn't hear a command. Try again.") }, token, 15000)
+                        }
+                    }
+                }
+                Unit
+            }
+            if (previous == null) capture() else previous.stopThen(capture)
+        }
+    }
+    fun cancelCapture() { mainHandler.post { oneShot = false; enterOffMode() } }
+    fun resumeIdle() {
+        mainHandler.post {
+            if (stopped) return@post
+            val mine = generation
+            scope.launch {
+                val open = GhostPrefs.isMicEnabled(ctx)
+                mainHandler.post { if (!stopped && mine == generation && !GhostIsland.active()) resumeIdleNow(open) }
+            }
+        }
+    }
+    private fun resumeIdleNow(open: Boolean) {
+            enterOffMode()
+            if (!canCapture() || ContextStore.state.value.callState in setOf(CallState.RINGING, CallState.IN_CALL)) {
+                GhostIsland.update(phase = "OFF", mic = "OFF", audio = 0f); return
+            }
+            if (open) { enterOpenMode(); return }
+            val mine = generation
+            if (wakeEnabled() && hasPermission()) {
+                mode = MicMode.WAKE_WORD
+                wake = com.coxy.ghost.perception.wakeword.KeywordWake(ctx,
+                    blockedReason = {
+                        captureBlockReason() ?: when {
+                            GhostVoice.speaking -> "speech_playback"
+                            GhostIsland.active() -> "interaction_active"
+                            ContextStore.state.value.callState in setOf(CallState.RINGING, CallState.IN_CALL) -> "call_active"
+                            ContextStore.state.value.inPocket == true -> "pocket"
+                            else -> null
+                        }
+                    },
+                    onReady = { mainHandler.post {
+                        val accepted = !stopped && mine == generation && mode == MicMode.WAKE_WORD
+                        Log.i("GhostKeyword", "ready callback accepted=$accepted")
+                        if (accepted) {
+                            isRunning = true; GhostIsland.update(phase = "ARMED", mic = "WAKE_WORD", audio = 0f)
+                        }
+                    } },
+                    onKeyword = { mainHandler.post {
+                        val accepted = !stopped && mine == generation && mode == MicMode.WAKE_WORD
+                        Log.i("GhostKeyword", "keyword callback accepted=$accepted")
+                        if (accepted) onWake?.invoke()
+                    } },
+                    onError = { mainHandler.post { if (!stopped && mine == generation && mode == MicMode.WAKE_WORD) {
+                        mode = MicMode.OFF; isRunning = false
+                        GhostIsland.update(phase = "ERROR", mic = "OFF", code = "WAKE_UNAVAILABLE", detail = "Hey Ghost is unavailable. Tap the island to speak.")
+                    } } }).also { it.start() }
+            } else GhostIsland.update(phase = "OFF", mic = "OFF", audio = 0f)
+    }
+    private fun failCapture(code: String, detail: String) {
+        oneShot = false; enterOffMode()
+        GhostIsland.update(phase = "ERROR", mic = "OFF", code = code, detail = detail, audio = 0f)
+        val mine = generation
+        mainHandler.postDelayed({ if (!stopped && generation == mine && !GhostIsland.active()) resumeIdle() }, token, 3500)
+    }
+
 
     /**
      * Restore the persisted latch on service start. Only [MicMode.OPEN] persists — push-to-talk is
      * by definition momentary, and nothing should come back from a reboot already listening.
      */
     fun start() {
+        val mine = generation
         scope.launch {
             val open = GhostPrefs.isMicEnabled(ctx)
-            mainHandler.post { if (open) enterOpenMode() else enterOffMode() }
+            mainHandler.post { if (!stopped && mine == generation) { if (open) enterOpenMode() else resumeIdle() } }
         }
     }
 
     /** Turn the OPEN latch on or off. Persisted by GhostService's ACTION_TOGGLE_MIC handler. */
     fun setEnabled(enabled: Boolean) {
-        mainHandler.post { if (enabled) enterOpenMode() else enterOffMode() }
+        mainHandler.post {
+            if (GhostIsland.state == "THINKING" || GhostIsland.state == "SPEAKING") return@post
+            if (enabled) enterOpenMode() else {
+                enterOffMode(); GhostIsland.update(phase = "OFF", mic = "OFF", audio = 0f)
+                resumeIdle()
+            }
+        }
     }
 
     /** True while the mic is latched open. */
@@ -159,12 +234,16 @@ class MicListener(
      */
     fun startPushToTalk() {
         mainHandler.post {
+            if (!canCapture()) return@post
             if (!hasPermission()) {
                 Log.i(TAG, "RECORD_AUDIO not granted — cannot push to talk")
                 ContextStore.update { it.copy(micAvailable = false) }
                 return@post
             }
             if (pttHeld) return@post
+            val previousWake = wake; wake = null
+            oneShot = false
+            GhostIsland.begin("")
             pttHeld = true
             teardownRecognizer()
             mode = MicMode.PUSH_TO_TALK
@@ -173,7 +252,12 @@ class MicListener(
             ContextStore.update {
                 it.copy(micState = MicState.VOICE, micAvailable = true, transcriptSnippet = null)
             }
-            startRecognizer(PTT_SILENCE_MS)
+            val mine = generation
+            val capture = {
+                mainHandler.post { if (!stopped && pttHeld && generation == mine) startRecognizer(PTT_SILENCE_MS) }
+                Unit
+            }
+            if (previousWake == null) capture() else previousWake.stopThen(capture)
             // If the release event is ever lost (view detached mid-press, activity backgrounded),
             // this stops the mic rather than leaving it open indefinitely.
             mainHandler.postDelayed({
@@ -198,6 +282,7 @@ class MicListener(
             ContextStore.update { it.copy(micState = MicState.SILENT) }
             val r = recognizer
             if (r == null) {
+                GhostIsland.update(phase = "OFF", mic = "OFF", audio = 0f)
                 restoreAfterPtt()
                 return@post
             }
@@ -205,7 +290,7 @@ class MicListener(
             runCatching { r.stopListening() }
                 .onFailure {
                     Log.w(TAG, "stopListening failed on release", it)
-                    restoreAfterPtt()
+                    failCapture("ASR_UNAVAILABLE", "Microphone interrupted. Try again.")
                 }
         }
     }
@@ -213,15 +298,18 @@ class MicListener(
     /** After a press finishes, go back to whatever the latch says. */
     private fun restoreAfterPtt() {
         teardownRecognizer()
+        val mine = generation
         scope.launch {
             val open = GhostPrefs.isMicEnabled(ctx)
-            mainHandler.post { if (open) enterOpenMode() else enterOffMode() }
+            mainHandler.post { if (!stopped && generation == mine) { if (open) enterOpenMode() else if (!GhostIsland.active()) resumeIdle() } }
         }
     }
 
     // ---------------------------------------------------------------- modes
 
     private fun enterOffMode() {
+        wake?.stop(); wake = null
+        oneShot = false
         mainHandler.removeCallbacksAndMessages(token)
         teardownRecognizer()
         pttHeld = false
@@ -242,6 +330,9 @@ class MicListener(
     }
 
     private fun enterOpenMode() {
+        if (!canCapture()) return
+        wake?.stop(); wake = null
+        oneShot = false
         if (!hasPermission()) {
             Log.i(TAG, "RECORD_AUDIO not granted — mic unavailable")
             ContextStore.update { it.copy(micAvailable = false) }
@@ -260,6 +351,7 @@ class MicListener(
     }
 
     fun stop() {
+        stopped = true
         mainHandler.post { enterOffMode() }
         scope.cancel()
     }
@@ -268,13 +360,18 @@ class MicListener(
 
     private fun startRecognizer(silenceMs: Long) {
         if (mode == MicMode.OFF) return
+        if (!canCapture()) {
+            failCapture("MIC_UNAVAILABLE", "Open Ghost to enable microphone access")
+            return
+        }
         @Suppress("DEPRECATION")
         val r = SpeechRecognizer.createSpeechRecognizer(ctx, AIAI_RECOGNIZER)
-        r.setRecognitionListener(CommandListener())
+        val mine = ++generation
+        r.setRecognitionListener(CommandListener(mine))
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, silenceMs)
             putExtra(
@@ -289,7 +386,7 @@ class MicListener(
             .onFailure {
                 Log.w(TAG, "startListening failed", it)
                 runCatching { r.destroy() }
-                scheduleRestart(OPEN_BACKOFF_MS)
+                if (mode == MicMode.PUSH_TO_TALK) failCapture("ASR_UNAVAILABLE", "Speech recognition could not start") else { GhostIsland.update(phase = "OFF", mic = "OPEN"); scheduleRestart(OPEN_BACKOFF_MS) }
             }
             .isSuccess
         if (started) recognizer = r
@@ -301,22 +398,29 @@ class MicListener(
     }
 
     private fun teardownRecognizer() {
+        generation++
         val r = recognizer
         recognizer = null
         runCatching { r?.cancel() }
         runCatching { r?.destroy() }
     }
 
-    private inner class CommandListener : RecognitionListener {
+    private inner class CommandListener(private val mine: Long) : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
+            if (stopped || mine != generation) return
+            if (mode == MicMode.OPEN) GhostIsland.begin("")
+            GhostIsland.update(phase = "LISTENING", mic = mode.name)
+            GhostIsland.publish()
             if (mode == MicMode.OPEN) ContextStore.update { it.copy(micState = MicState.SILENT) }
         }
 
         override fun onBeginningOfSpeech() {
+            if (stopped || mine != generation) return
             ContextStore.update { it.copy(micState = MicState.VOICE) }
         }
 
         override fun onRmsChanged(rms: Float) {
+            if (stopped || mine != generation) return
             // Not written to ContextState.audioLevelDb. SpeechRecognizer's RMS is its own scale
             // (roughly -2..10, against no documented reference), while that field is specified as
             // dBFS and is rendered as `mic=voice(NdB)` into the [CONTEXT] block the model reads.
@@ -325,22 +429,27 @@ class MicListener(
             //
             // It does drive the Live waveform, which needs movement rather than units. See lastRms.
             lastRms = rms
+            GhostIsland.update(audio = ((rms - RMS_FLOOR) / (RMS_CEIL - RMS_FLOOR)).coerceIn(0f, 1f))
         }
 
         override fun onBufferReceived(buffer: ByteArray?) {}
 
         override fun onEndOfSpeech() {
+            if (stopped || mine != generation) return
             ContextStore.update { it.copy(micState = MicState.SILENT) }
         }
 
         override fun onError(error: Int) {
+            if (stopped || mine != generation) return
             val name = errorName(error)
+            if (oneShot || mode == MicMode.PUSH_TO_TALK) { failCapture(name, if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) "I didn't catch that. Try again." else "Microphone interrupted. Try again."); return }
             if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                 Log.w(TAG, "RECORD_AUDIO revoked — stopping the mic")
                 ContextStore.update { it.copy(micAvailable = false) }
                 enterOffMode()
                 return
             }
+            GhostIsland.update(phase = "OFF", mic = mode.name, audio = 0f)
             // NO_MATCH and SPEECH_TIMEOUT are the normal outcome of silence, not failures.
             val benign = error == SpeechRecognizer.ERROR_NO_MATCH ||
                 error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
@@ -368,6 +477,7 @@ class MicListener(
         }
 
         override fun onResults(results: Bundle?) {
+            if (stopped || mine != generation) return
             val text = results
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()
@@ -376,8 +486,18 @@ class MicListener(
             consecutiveErrors = 0
             Log.d(TAG, "recognizer results: \"$text\"")
 
-            if (text.isNotBlank()) dispatchVoiceCommand(text)
+            if (oneShot) {
+                if (text.isBlank()) { failCapture("NO_MATCH", "I didn't catch that. Try again."); return }
+                oneShot = false; enterOffMode()
+                dispatchVoiceCommand(text)
+                return
+            }
+            if (text.isNotBlank()) {
+                pttHeld = false; teardownRecognizer(); dispatchVoiceCommand(text); return
+            }
 
+            if (mode == MicMode.PUSH_TO_TALK) { failCapture("NO_MATCH", "I didn't catch that. Try again."); return }
+            GhostIsland.update(phase = "OFF", mic = mode.name, audio = 0f)
             if (pttHeld) {
                 // A result arrived before release (the recognizer endpointed on its own). Restart so
                 // the rest of the press is still captured.
@@ -389,10 +509,13 @@ class MicListener(
                 return
             }
             teardownRecognizer()
-            scheduleRestart(OPEN_RESTART_MS)
+            if (text.isBlank()) scheduleRestart(OPEN_RESTART_MS)
         }
 
-        override fun onPartialResults(partial: Bundle?) {}
+        override fun onPartialResults(partial: Bundle?) {
+            if (stopped || mine != generation) return
+            GhostIsland.update(heard = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
+        }
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
 
@@ -409,6 +532,7 @@ class MicListener(
      * decide *whether* speech was meant for GHOST, and that decision is now made by hand.
      */
     private fun dispatchVoiceCommand(cmd: String) {
+        GhostIsland.update(phase = "THINKING", heard = cmd, audio = 0f)
         val now = System.currentTimeMillis()
         val truncated = cmd.take(200)
         ContextStore.update {

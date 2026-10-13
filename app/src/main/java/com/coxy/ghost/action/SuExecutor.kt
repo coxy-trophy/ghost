@@ -14,8 +14,8 @@ object SuExecutor {
 
     private const val TAG = "SuExecutor"
 
-    fun run(action: Action): ActionResult {
-        return runCatching {
+    suspend fun run(action: Action): ActionResult = kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+        runCatching {
             val output = when (action.id) {
                 "toggle_wifi" -> svcWifi(parseActionState(action.params["state"]))
                 "toggle_bluetooth" -> svcBluetooth(parseActionState(action.params["state"]))
@@ -23,11 +23,12 @@ object SuExecutor {
                 "disable_app" -> disableApp(sanitizePackage(action.params["package"]))
                 "uninstall_app" -> uninstallApp(sanitizePackage(action.params["package"]))
                 "send_sms" -> sendSms(action.params["number"] ?: "", action.params["message"] ?: "")
-                else -> return ActionResult(action.id, false, "not implemented in SuExecutor")
+                else -> return@runInterruptible ActionResult(action.id, false, "not implemented in SuExecutor")
             }
             ActionResult(action.id, true, output)
         }.getOrElse {
-            Log.w(TAG, "action ${action.id} failed", it)
+            if (it is java.lang.InterruptedException || it is kotlinx.coroutines.CancellationException) throw it
+            Log.w(TAG, "action ${action.id} failed: ${it.javaClass.simpleName}")
             ActionResult(action.id, false, it.message ?: "shell error")
         }
     }
@@ -70,14 +71,9 @@ object SuExecutor {
     private fun sanitizePackage(pkg: String?): String = PackageNames.sanitize(pkg)
 
     private fun exec(command: String): String {
-        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
-        val stdout = process.inputStream.bufferedReader().use { it.readText() }
-        val stderr = process.errorStream.bufferedReader().use { it.readText() }
-        val exit = process.waitFor()
-        if (exit != 0) {
-            val err = (stderr.ifBlank { stdout }).trim()
-            throw IOException("exit=$exit: $err")
-        }
-        return stdout.trim()
+        val result = com.coxy.ghost.execution.BoundedProcessRunner.run(listOf("su", "-c", command))
+        if (result.timedOut) throw IOException("Command timed out; completion is unknown")
+        if (result.exitCode != 0) throw IOException("exit=${result.exitCode}: ${result.output.trim()}")
+        return result.output.trim() + if (result.truncated) "\n[output truncated]" else ""
     }
 }

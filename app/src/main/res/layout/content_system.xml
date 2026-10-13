@@ -117,6 +117,15 @@
             <View style="@style/Widget.Ghost.RowDivider" />
 
             <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_wake"
+                style="@style/Widget.Ghost.Row"
+                android:text="Hey Ghost · wake word"
+                android:drawableStart="@drawable/ic_mic"
+                android:drawableEnd="@drawable/ic_chevron" />
+
+            <View style="@style/Widget.Ghost.RowDivider" />
+
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btn_capture"
                 style="@style/Widget.Ghost.Row"
                 android:enabled="false"
@@ -167,6 +176,32 @@
                 style="@style/Widget.Ghost.Row"
                 android:text="@string/ghost_model"
                 android:drawableStart="@drawable/outline_folder_open_24"
+                android:drawableEnd="@drawable/ic_chevron" />
+        </LinearLayout>
+
+        <!-- ── System ─────────────────────────────────────────────────── -->
+        <TextView
+            style="@style/TextAppearance.Ghost.GroupHeader"
+            android:text="@string/ghost_group_system" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_settings_group">
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_capabilities"
+                style="@style/Widget.Ghost.Row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Local capabilities" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_assistant"
+                style="@style/Widget.Ghost.Row"
+                android:text="@string/ghost_assistant"
+                android:drawableStart="@drawable/ic_spark"
                 android:drawableEnd="@drawable/ic_chevron" />
         </LinearLayout>
 

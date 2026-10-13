@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnCapture: android.widget.Button
     private lateinit var btnPersonality: android.widget.Button
     private lateinit var btnCloud: android.widget.Button
+    private lateinit var btnAssistant: android.widget.Button
     private lateinit var btnMic: android.widget.Button
     private lateinit var btnVoice: android.widget.Button
     private lateinit var statusDot: View
@@ -222,6 +223,7 @@ class MainActivity : AppCompatActivity() {
         btnCapture = findViewById(R.id.btn_capture)
         btnPersonality = findViewById(R.id.btn_personality)
         btnCloud = findViewById(R.id.btn_cloud)
+        btnAssistant = findViewById(R.id.btn_assistant)
         btnMic = findViewById(R.id.btn_mic)
         btnVoice = findViewById(R.id.btn_voice)
         statusDot = findViewById(R.id.status_dot)
@@ -312,7 +314,21 @@ class MainActivity : AppCompatActivity() {
         btnCapture.setOnClickListener { captureFrame() }
         btnPersonality.setOnClickListener { showPersonalityDialog() }
         btnCloud.setOnClickListener { showCloudDialog() }
+        btnAssistant.setOnClickListener { showAssistantDialog() }
+        findViewById<android.widget.Button>(R.id.btn_capabilities).setOnClickListener {
+            startActivity(Intent(this, com.coxy.ghost.capabilities.CapabilitiesActivity::class.java))
+        }
         btnMic.setOnClickListener { toggleMic() }
+        findViewById<View>(R.id.btn_wake).setOnClickListener {
+            val enabled = GhostPrefs.isWakeWordEnabled(this)
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Hey Ghost")
+                .setMessage("Say ‘Hey Ghost’, wait for the island to show Listening, then speak your request. Ambient audio stays on this phone and is not saved. Long-press the island to speak any time.")
+                .setPositiveButton(if (enabled) "Turn off" else "Turn on") { _, _ ->
+                    startService(Intent(this, GhostService::class.java).setAction(GhostService.ACTION_SET_WAKE)
+                        .putExtra(GhostService.EXTRA_ENABLED, !enabled))
+                }.setNegativeButton("Cancel", null).show()
+        }
         btnVoice.setOnClickListener { com.coxy.ghost.ui.VoiceDialog(this, lifecycleScope).show() }
         lifecycleScope.launch(Dispatchers.IO) {
             val on = GhostPrefs.isVoiceEnabled(applicationContext)
@@ -1132,7 +1148,7 @@ class MainActivity : AppCompatActivity() {
                     val prompt = GhostPrompts.buildUserPrompt(cs, memBlock, userMsg)
 
                     suspend fun stream(p: String) =
-                        cloudRouter.route(p, GhostService.currentSystemPrompt, predictLength = 512)
+                        cloudRouter.route(p, GhostService.currentSystemPrompt, predictLength = 512, userText = userMsg)
                             .collect { token ->
                                 withContext(Dispatchers.Main) {
                                     val n = messages.size
@@ -1296,6 +1312,62 @@ class MainActivity : AppCompatActivity() {
         PersonalityDialog(this, lifecycleScope, personalityRepo, ::startServiceWithAction).show()
 
     private fun showCloudDialog() = CloudDialog(this, lifecycleScope).show()
+
+    /**
+     * Make GHOST the device's default assistant — the app the assist gesture summons.
+     *
+     * Two routes, because there is no third-party API to take the role: GHOST is a rooted system app
+     * so it can write the secure setting itself ("Set GHOST" — immediate, no reboot), and the system
+     * picker is offered as the ordinary fallback. The label reflects who holds the role right now.
+     */
+    private fun showAssistantDialog() {
+        val isGhost = AssistantRole.isDefault(this)
+        val current = AssistantRole.currentLabel(this)
+        val message = if (isGhost) {
+            "GHOST is your default assistant. The assist gesture will summon her over any screen.\n\n" +
+                "You can hand the role back to the system, or open Android's assistant settings."
+        } else {
+            "Your assistant is currently $current. Set GHOST so the assist gesture summons her " +
+                "instead — she is a rooted system app, so this applies immediately without a reboot.\n\n" +
+                "Or open Android's settings to choose her by hand."
+        }
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle(R.string.ghost_assistant)
+            .setMessage(message)
+            .setNeutralButton("Android settings") { _, _ ->
+                AssistantRole.openSystemAssistantSettings(this)
+            }
+            .setNegativeButton("Close", null)
+
+        if (isGhost) {
+            builder.setPositiveButton("Hand back") { _, _ -> applyAssistant(makeDefault = false) }
+        } else {
+            builder.setPositiveButton("Set GHOST") { _, _ -> applyAssistant(makeDefault = true) }
+        }
+        builder.show()
+    }
+
+    private fun applyAssistant(makeDefault: Boolean) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                if (makeDefault) AssistantRole.setAsDefaultViaRoot() else AssistantRole.clearViaRoot()
+            }
+            val msg = result.fold(
+                onSuccess = {
+                    if (makeDefault) "GHOST is now your default assistant" else "Assistant handed back to the system"
+                },
+                onFailure = { "Couldn't change the assistant (root denied?): ${it.message}" },
+            )
+            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Retry deferred capture access without interrupting an existing interaction.
+        if (GhostService.isRunning) startServiceWithAction(GhostService.ACTION_REFRESH_FOREGROUND)
+    }
 
     override fun onStop() {
         pulse?.cancel()

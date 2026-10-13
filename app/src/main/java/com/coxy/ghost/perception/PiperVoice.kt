@@ -40,6 +40,8 @@ object PiperVoice {
     private const val TOKENS = "tokens.txt"
     private const val ESPEAK = "espeak-ng-data"
 
+    private val synthesisLock = Any()
+    private val generation = java.util.concurrent.atomic.AtomicLong()
     @Volatile private var tts: OfflineTts? = null
     @Volatile private var track: AudioTrack? = null
 
@@ -114,54 +116,69 @@ object PiperVoice {
         text: String,
         speed: Float = 1.0f,
         onProgress: () -> Unit,
-        onDone: () -> Unit
+        onDone: () -> Unit,
+        isCurrent: () -> Boolean = { true },
     ): Boolean {
-        val engine = tts ?: return false
-        val rate = engine.sampleRate()
-        val out = ensureTrack(rate)
-        if (out == null) {
-            onDone()
-            return false
-        }
-
-        return runCatching {
-            out.play()
-            engine.generateWithCallback(
-                text = text,
-                sid = 0,
-                speed = speed,
-                callback = SamplesCallback { samples ->
-                    // 16-bit PCM: sherpa hands back floats in -1..1.
-                    val pcm = ShortArray(samples.size) {
-                        (samples[it].coerceIn(-1f, 1f) * 32767f).toInt().toShort()
-                    }
-                    out.write(pcm, 0, pcm.size)
-                    onProgress()
+        val ticket = generation.get()
+        fun valid() = ticket == generation.get() && isCurrent()
+        synchronized(synthesisLock) {
+            if (!valid()) return true // cancellation is not a reason to play a fallback
+            val engine = tts ?: return false
+            val rate = engine.sampleRate()
+            val out = ensureTrack(rate) ?: return false
+            var writtenFrames = 0L
+            try {
+                out.play()
+                engine.generateWithCallback(text = text, sid = 0, speed = speed,
+                    callback = SamplesCallback { samples ->
+                        if (!valid()) 0 else {
+                            val pcm = ShortArray(samples.size) { (samples[it].coerceIn(-1f, 1f) * 32767f).toInt().toShort() }
+                            var offset = 0
+                            var lastWrite = android.os.SystemClock.elapsedRealtime()
+                            while (offset < pcm.size && valid()) {
+                                val count = out.write(pcm, offset, minOf(1024, pcm.size - offset), AudioTrack.WRITE_NON_BLOCKING)
+                                check(count >= 0) { "AudioTrack write failed: $count" }
+                                if (count == 0) {
+                                    check(android.os.SystemClock.elapsedRealtime() - lastWrite < 3000) { "AudioTrack stalled" }
+                                    Thread.sleep(5)
+                                } else {
+                                    offset += count; writtenFrames += count
+                                    lastWrite = android.os.SystemClock.elapsedRealtime()
+                                    onProgress()
+                                }
+                            }
+                            if (valid()) 1 else 0
+                        }
+                    })
+                // Completion follows audible frames, not the end of native synthesis.
+                val deadline = android.os.SystemClock.elapsedRealtime() + 3000
+                while (valid() && (out.playbackHeadPosition.toLong() and 0xffffffffL) < writtenFrames) {
+                    check(android.os.SystemClock.elapsedRealtime() < deadline) { "Playback did not drain" }
+                    Thread.sleep(8)
                 }
-            )
-            // Let the buffer drain before the state flips, or she stops "speaking" mid-word.
-            out.stop()
-            onDone()
-            true
-        }.getOrElse {
-            Log.w(TAG, "Piper generation failed", it)
-            runCatching { out.stop() }
-            onDone()
-            false
+                if (valid()) onDone()
+                return true
+            } catch (e: Exception) {
+                if (valid()) Log.w(TAG, "Piper generation failed", e)
+                return !valid()
+            } finally {
+                runCatching { out.stop() }; runCatching { out.release() }
+                if (track === out) track = null
+            }
         }
     }
 
     fun stop() {
+        generation.incrementAndGet()
         runCatching { track?.pause() }
         runCatching { track?.flush() }
     }
 
-    @Synchronized
     fun release() {
-        runCatching { track?.release() }
-        track = null
-        runCatching { tts?.release() }
-        tts = null
+        stop()
+        Thread({ synchronized(synthesisLock) {
+            runCatching { tts?.release() }; tts = null
+        } }, "ghost-piper-release").apply { isDaemon = true }.start()
     }
 
     /**

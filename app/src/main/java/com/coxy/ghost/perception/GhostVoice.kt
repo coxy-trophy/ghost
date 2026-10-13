@@ -203,90 +203,68 @@ object GhostVoice {
         return if (online) networkVoice ?: localVoice else localVoice ?: networkVoice
     }
 
+    @Volatile private var utterance = 0L
+    @Volatile private var stateCallback: ((Boolean) -> Unit)? = null
+    private fun current(id: String?) = id?.startsWith("ghost-$utterance-") == true
+    @Synchronized private fun playback(stamp: Long, active: Boolean) {
+        if (stamp != utterance) return
+        speaking = active
+        if (active) lastWordAt = System.currentTimeMillis()
+        val callback = stateCallback
+        if (!active) stateCallback = null
+        callback?.invoke(active)
+    }
+    @Synchronized private fun playbackId(id: String?, active: Boolean) {
+        if (current(id)) playback(utterance, active)
+    }
     private val progress = object : UtteranceProgressListener() {
-        override fun onStart(utteranceId: String?) {
-            speaking = true
-            lastWordAt = System.currentTimeMillis()
-        }
-
+        override fun onStart(utteranceId: String?) { playbackId(utteranceId, true) }
         override fun onDone(utteranceId: String?) {
-            // Only the last sentence of a reply ends the speaking state; the gaps between
-            // sentences are utterances too, and treating each as the end would strobe the orb.
-            if (utteranceId != null && utteranceId.endsWith("-last")) speaking = false
+            if (utteranceId?.endsWith("-last") == true) playbackId(utteranceId, false)
         }
-
-        @Deprecated("Required by the base class", ReplaceWith(""))
-        override fun onError(utteranceId: String?) {
-            speaking = false
-        }
-
-        override fun onError(utteranceId: String?, errorCode: Int) {
-            Log.w(TAG, "speech failed: $errorCode")
-            speaking = false
-        }
-
-        /** One call per word. This is the orb's heartbeat — see the note on this object. */
+        @Deprecated("Required by base class")
+        override fun onError(utteranceId: String?) { playbackId(utteranceId, false) }
+        override fun onError(utteranceId: String?, errorCode: Int) { playbackId(utteranceId, false) }
         override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
-            lastWordAt = System.currentTimeMillis()
+            if (current(utteranceId)) lastWordAt = System.currentTimeMillis()
         }
     }
 
-    /**
-     * Say [text], cutting off whatever was being said.
-     *
-     * Spoken one sentence at a time with a beat between, because a speech engine handed a
-     * paragraph runs the sentences together at a constant pace and that is a large part of what
-     * "robotic" means. A person stops for breath.
-     */
-    fun speak(text: String) {
-        if (!enabled) return
+    /** Completion follows actual playback, with cancelled utterances unable to finish a new one. */
+    @Synchronized fun speak(text: String, onState: ((Boolean) -> Unit)? = null) {
+        stop()
+        val stamp = utterance
+        stateCallback = onState
         val spoken = shape(strip(text))
-        if (spoken.isBlank()) return
-
-        // Piper first when it is loaded. Its beat comes from audio arriving rather than from word
-        // markers — sherpa reports neither, and the sound itself is the more honest signal anyway.
+        if (!enabled || spoken.isBlank()) { playback(stamp, false); return }
         if (piperWanted && PiperVoice.ready) {
-            speaking = true
-            lastWordAt = System.currentTimeMillis()
             Thread({
-                val ok = PiperVoice.speak(
-                    text = spoken,
-                    onProgress = { lastWordAt = System.currentTimeMillis() },
-                    onDone = { speaking = false }
-                )
-                // If the neural model failed mid-sentence, say it in the platform voice rather
-                // than leaving the reply unspoken.
-                if (!ok) platformSpeak(spoken)
+                if (stamp != utterance) return@Thread
+                val ok = PiperVoice.speak(spoken,
+                    onProgress = { if (stamp == utterance) playback(stamp, true) },
+                    onDone = {}, isCurrent = { stamp == utterance })
+                if (stamp == utterance) {
+                    if (ok) playback(stamp, false) else platformSpeak(spoken, stamp)
+                }
             }, "ghost-piper-speak").apply { isDaemon = true }.start()
-            return
-        }
-        platformSpeak(spoken)
+        } else platformSpeak(spoken, stamp)
     }
 
-    private fun platformSpeak(spoken: String) {
-        if (!ready) return
-        val engine = tts ?: return
-        val sentences = sentences(spoken)
-        if (sentences.isEmpty()) return
-
-        voiceForNow()?.let { v ->
-            engine.voice = v
-            voiceName = v.name
-        }
-
-        val stamp = System.nanoTime()
-        sentences.forEachIndexed { i, sentence ->
-            val last = i == sentences.lastIndex
+    private fun platformSpeak(spoken: String, stamp: Long) {
+        if (stamp != utterance) return
+        val engine = tts
+        if (!ready || engine == null) { playback(stamp, false); return }
+        val parts = sentences(spoken)
+        if (parts.isEmpty()) { playback(stamp, false); return }
+        voiceForNow()?.let { engine.voice = it; voiceName = it.name }
+        parts.forEachIndexed { i, sentence ->
+            if (stamp != utterance) return
+            val last = i == parts.lastIndex
             val id = "ghost-$stamp-$i" + if (last) "-last" else ""
-            engine.speak(
-                sentence,
-                if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
-                Bundle(),
-                id
-            )
-            if (!last) {
-                engine.playSilentUtterance(SENTENCE_GAP_MS, TextToSpeech.QUEUE_ADD, "gap-$stamp-$i")
-            }
+            val result = engine.speak(sentence,
+                if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, Bundle(), id)
+            if (result == TextToSpeech.ERROR) { playback(stamp, false); return }
+            if (!last) engine.playSilentUtterance(SENTENCE_GAP_MS, TextToSpeech.QUEUE_ADD, "ghost-$stamp-gap-$i")
         }
     }
 
@@ -300,27 +278,34 @@ object GhostVoice {
 
     /** Say one line in [voice], to hear it. Used by the picker and nothing else. */
     fun preview(voice: Voice, line: String) {
+        stop()
         val engine = tts ?: return
         engine.voice = voice
-        engine.speak(line, TextToSpeech.QUEUE_FLUSH, Bundle(), "preview-${System.nanoTime()}-last")
+        engine.speak(line, TextToSpeech.QUEUE_FLUSH, Bundle(), "ghost-$utterance-preview-last")
     }
 
     /** Same, in the neural voice. Off the main thread: generation is not instant. */
     fun previewPiper(line: String) {
         if (!PiperVoice.ready) return
         stop()
+        val stamp = utterance
         Thread({
-            PiperVoice.speak(line, onProgress = {}, onDone = {})
+            PiperVoice.speak(line, onProgress = { playback(stamp, true) }, onDone = { playback(stamp, false) }, isCurrent = { stamp == utterance })
         }, "ghost-piper-preview").apply { isDaemon = true }.start()
     }
 
-    fun stop() {
+    @Synchronized fun stop() {
+        val stoppedCallback = stateCallback
+        utterance++
+        stateCallback = null
         runCatching { tts?.stop() }
         runCatching { PiperVoice.stop() }
         speaking = false
+        stoppedCallback?.invoke(false)
     }
 
     fun shutdown() {
+        stop()
         runCatching { PiperVoice.release() }
         runCatching { tts?.shutdown() }
         tts = null

@@ -119,11 +119,9 @@ object LookupTurn {
     /**
      * Fold a block into the prompt for the next pass.
      *
-     * Prepended, not appended, so the user's message stays the final line. `[CONTEXT]` and
-     * `[MEMORY]` sit in front of the text for the same reason, and
-     * [com.coxy.ghost.cloud.CloudPromptFilter]'s CHAT_ONLY mode depends on it: it reconstructs the
-     * turn as "the last non-blank line", so a block after the text would take the message's place.
-     * Chained steps therefore stack newest-first, which is also the order they are most useful in.
+     * Prepend lookup results so the original user message remains an intact suffix. Cloud privacy
+     * filtering receives that message separately and filters only the metadata before it.
+     * Chained steps stack newest-first.
      */
     fun withBlock(prompt: String, block: String): String = "$block\n$prompt"
 

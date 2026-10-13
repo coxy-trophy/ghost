@@ -42,8 +42,8 @@ android {
         minSdk = 33
         targetSdk = 36
 
-        versionCode = 64
-        versionName = "0.30.0"
+        versionCode = 73
+        versionName = "0.34.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -105,7 +105,19 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+// Report a missing local dependency before Kotlin emits unresolved sherpa imports.
+val verifySpeechDependency by tasks.registering {
+    doLast {
+        check(file("libs/sherpa-onnx.aar").isFile) {
+            "Missing app/libs/sherpa-onnx.aar. Run ./tools/install_piper_voice.sh --aar-only"
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(verifySpeechDependency) }
+
 dependencies {
+    // Definitions only; Android supplies these platform classes at runtime. Never package them.
+    compileOnly(files("libs/android-system-api-34-stubs.jar"))
     /**
      * sherpa-onnx: Piper neural text-to-speech, on device.
      *

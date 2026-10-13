@@ -30,6 +30,11 @@ object ActionRunner {
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
 
+    /** Personal tools return fixed metadata only; hide bookkeeping in the presentation layer. */
+    fun forDisplay(reply: String): String = reply.replace(
+        Regex("^\\s*\\[ACTION (?:ok|fail) (?:read_notifications|lookup_contact): ([^\\n]*)]$", RegexOption.MULTILINE)
+    ) { it.groupValues[1] }
+
     suspend fun run(executor: ActionExecutor, reply: String): String {
         val parsed = ActionParser.extract(reply)
         if (parsed.actions.isEmpty() && parsed.errors.isEmpty()) return reply

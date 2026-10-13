@@ -222,6 +222,13 @@ object GhostPrefs {
     fun micEnabledFlow(ctx: Context): Flow<Boolean> =
         ctx.ghostDataStore.data.map { it[KEY_MIC_OPEN_LATCH] ?: false }
 
+    /** New keyword detector needs explicit opt-in; the archived TFLite preference is not migrated. */
+    fun isWakeWordEnabled(ctx: Context): Boolean =
+        ctx.getSharedPreferences("ghost_wake", Context.MODE_PRIVATE).getBoolean("enabled", false)
+    fun setWakeWordEnabled(ctx: Context, enabled: Boolean) {
+        ctx.getSharedPreferences("ghost_wake", Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).apply()
+    }
+
     suspend fun isMicEnabled(ctx: Context): Boolean = micEnabledFlow(ctx).first()
 
     suspend fun setMicEnabled(ctx: Context, enabled: Boolean) {

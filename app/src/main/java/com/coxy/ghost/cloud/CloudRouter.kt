@@ -43,7 +43,8 @@ class CloudRouter(
         fullPrompt: String,
         systemPrompt: String,
         predictLength: Int = 512,
-        allowLocalFallback: Boolean = true
+        allowLocalFallback: Boolean = true,
+        userText: String? = null
     ): Flow<String> {
         val prefs = settingsProvider()
         // One read: keyProvider hits encrypted storage, and this was calling it twice per query.
@@ -68,7 +69,7 @@ class CloudRouter(
             Log.i(TAG, "no network — using local engine")
             return local(fullPrompt, Brain.LOCAL_OFFLINE, allowLocalFallback)
         }
-        val filtered = CloudPromptFilter.apply(fullPrompt, prefs.privacyMode)
+        val filtered = CloudPromptFilter.apply(fullPrompt, prefs.privacyMode, userText)
 
         return try {
             val client = clientFactory(key)
@@ -96,6 +97,8 @@ class CloudRouter(
                 Log.w(TAG, "Cloud returned empty reply — falling back to local")
                 local(fullPrompt, Brain.LOCAL_CLOUD_FAILED, allowLocalFallback)
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (isAuthFailure(e)) {
                 // Deliberately louder than the rest of this class. A refused key is the one failure

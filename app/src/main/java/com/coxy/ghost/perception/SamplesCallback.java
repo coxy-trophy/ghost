@@ -24,7 +24,7 @@ public final class SamplesCallback implements Function1<float[], Integer> {
 
     /** A Kotlin lambda gets converted to this, so callers still read like callers. */
     public interface OnChunk {
-        void onChunk(float[] samples);
+        int onChunk(float[] samples);
     }
 
     private final OnChunk onChunk;
@@ -35,7 +35,6 @@ public final class SamplesCallback implements Function1<float[], Integer> {
 
     @Override
     public Integer invoke(float[] samples) {
-        onChunk.onChunk(samples);
-        return 1;
+        return onChunk.onChunk(samples);
     }
 }

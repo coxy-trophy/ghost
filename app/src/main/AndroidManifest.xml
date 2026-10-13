@@ -10,6 +10,7 @@
       apps that can be opened, and nothing here needs to see the ones that cannot.
     -->
     <queries>
+        <package android:name="com.coxy.nocturne.ui" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -30,6 +31,10 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Opt-in system hotword initialization probe; deployment coordinator stages scoped grants. -->
+    <uses-permission android:name="android.permission.CAPTURE_AUDIO_HOTWORD" />
+    <uses-permission android:name="android.permission.MANAGE_HOTWORD_DETECTION" />
 
     <!-- Phase 7 action layer: adjust screen brightness via Settings.System. -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
@@ -70,6 +75,8 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:name=".GhostApp"
         android:allowBackup="true"
@@ -93,6 +100,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver android:name=".ipc.GhostControlReceiver" android:exported="true" />
 
         <service
             android:name=".GhostService"
@@ -160,6 +169,54 @@
                 <action android:name="com.coxy.ghost.action.DECLINE_ACTION" />
             </intent-filter>
         </receiver>
+        <activity android:name=".capabilities.CapabilitiesActivity" android:exported="false" />
+        <activity android:name=".contacts.ContactViewerActivity" android:exported="false"
+            android:noHistory="true" android:excludeFromRecents="true" />
+
+        <activity android:name=".notifications.NotificationViewerActivity"
+            android:exported="false" android:noHistory="true" android:excludeFromRecents="true" />
+
+        <!-- Opt-in platform feasibility lane; current AssistActivity/software wake remain default. -->
+        <service android:name=".platform.GhostVoiceInteractionService"
+            android:enabled="false" android:exported="true" android:process=":voice"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter><action android:name="android.service.voice.VoiceInteractionService" /></intent-filter>
+            <meta-data android:name="android.voice_interaction" android:resource="@xml/ghost_voice_interaction" />
+        </service>
+        <service android:name=".platform.GhostHotwordDetectionService"
+            android:exported="true" android:isolatedProcess="true" android:process=":hotword"
+            android:permission="android.permission.BIND_HOTWORD_DETECTION_SERVICE" />
+        <service android:name=".platform.GhostVoiceSessionService"
+            android:exported="true" android:process=":voice"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
+        <activity
+            android:name=".AssistActivity"
+            android:exported="true"
+            android:process=":assist"
+            android:launchMode="singleInstance"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".SummonTile"
+            android:exported="true"
+            android:icon="@drawable/ic_mic"
+            android:label="@string/ghost_summon_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

@@ -33,8 +33,7 @@ class WebResultsTest {
 
     @Test
     fun `a single-line block survives every privacy mode`() {
-        // The point of the single line: CHAT_ONLY reconstructs the turn from the last line, and the
-        // other modes strip [CONTEXT]/[MEMORY] to end-of-line. [WEB] must come through all four.
+        // Injected blocks occupy one line each. Public [WEB] results must survive every mode.
         val block = WebResults.toPromptBlock(ok(sample))
         val prompt = "$block\n[CONTEXT activity=still]\n[MEMORY user: hi]\nwhat shipped in kotlin 2.2?"
         for (mode in CloudPromptFilter.Mode.entries) {

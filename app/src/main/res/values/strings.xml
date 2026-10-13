@@ -48,7 +48,14 @@
 
     <!-- Phase 5 kill switch -->
     <string name="ghost_kill_tile">Kill GHOST</string>
-    <string name="ghost_accessibility_desc">GHOST hardware kill switch — hold both volume keys to stop GHOST. Does not read screen content.</string>
+    <string name="ghost_accessibility_desc">GHOST hardware channels — hold both volume keys to stop GHOST, or long-press volume-up to summon her. Does not read screen content.</string>
+
+    <!-- Summon from anywhere -->
+    <string name="ghost_summon_tile">Summon GHOST</string>
+    <string name="ghost_notif_summon">Summon</string>
+    <string name="ghost_summon_listening">Listening…</string>
+    <string name="ghost_summon_thinking">Thinking…</string>
+    <string name="ghost_summon_speaking">Speaking…</string>
 
     <!-- Bottom navigation -->
     <string name="ghost_nav_chat">Chat</string>
@@ -102,6 +109,8 @@
     <string name="ghost_brain_local">On device</string>
     <string name="ghost_group_senses">What she can hear and see</string>
     <string name="ghost_group_mind">How she thinks</string>
+    <string name="ghost_group_system">System</string>
+    <string name="ghost_assistant">Default assistant</string>
     <string name="ghost_group_appearance">Appearance</string>
     <string name="ghost_theme_light">Light</string>
     <string name="ghost_theme_dark">Dark</string>
@@ -110,4 +119,12 @@
     <string name="ghost_copy">Copy</string>
     <string name="ghost_copied">Copied</string>
     <string name="ghost_scroll_latest">Jump to latest</string>
+    <string name="ghost_summon_ready">Ready</string>
+    <string name="ghost_summon_tap">Tap to speak</string>
+    <string name="ghost_summon_error">Try again</string>
+    <string name="ghost_summon_warming">Getting ready…</string>
+    <string name="ghost_private_notifications">Notifications</string>
+    <string name="ghost_private_notifications_detail">Local view only. Not sent to the assistant model or saved in chat. Closes when you leave.</string>
+    <string name="ghost_notifications_empty">No notifications from apps with access enabled.</string>
+    <string name="ghost_notifications_done">Done</string>
 </resources>

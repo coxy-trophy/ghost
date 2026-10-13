@@ -212,7 +212,7 @@ class DeviceNamesTest {
     fun `a mac key is matched case-insensitively`() {
         assertEquals(
             DeviceNames.keyFor(tv98),
-            DeviceNames.keyFor(tv98.copy(mac = "44:0F:B4:41:89:70"))
+            DeviceNames.keyFor(tv98.copy(mac = tv98.mac!!.uppercase()))
         )
     }
 

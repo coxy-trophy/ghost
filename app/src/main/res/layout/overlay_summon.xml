@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The summon surface: GHOST called from anywhere.
+
+  This is the same presence Live mode shows, hoisted into a system overlay window
+  (TYPE_APPLICATION_OVERLAY, owned by GhostService) so it can appear over the home screen, over
+  another app, and over the lock screen — the "like Siri" ask. It deliberately mirrors
+  content_live.xml so the two surfaces read as one object: the orb is the light source and swells
+  with the voice, her state sits under it like a nameplate, what she heard is the largest thing,
+  and what she said is quieter beneath it.
+
+  The root is the scrim. It fills the screen and a tap on it dismisses the overlay; the panel in the
+  middle consumes its own touches so a tap on the orb or the button does not close it. The window
+  itself dims what is behind (FLAG_DIM_BEHIND), so the root stays transparent.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/summon_scrim"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/transparent"
+    android:clickable="true"
+    android:focusable="false">
+
+    <LinearLayout
+        android:id="@+id/summon_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:clickable="true"
+        android:focusable="false"
+        android:paddingHorizontal="24dp">
+
+        <com.coxy.ghost.ui.OrbView
+            android:id="@+id/summon_orb"
+            android:layout_width="match_parent"
+            android:layout_height="260dp" />
+
+        <!-- Her state, tight under her, like a nameplate — same role as live_state. -->
+        <TextView
+            android:id="@+id/summon_state"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ghost_summon_listening"
+            style="@style/TextAppearance.Ghost.Label"
+            android:textColor="@color/live_accent"
+            android:textSize="11sp" />
+
+        <!-- What she heard — the largest thing, checked mid-sentence to know you were understood. -->
+        <TextView
+            android:id="@+id/summon_heard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:paddingHorizontal="20dp"
+            android:gravity="center"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:textColor="@color/on_live_field"
+            android:textSize="20sp"
+            android:fontFamily="sans-serif-medium"
+            android:lineSpacingExtra="2dp"
+            android:letterSpacing="-0.02" />
+
+        <!-- What she said — quieter, because from a summon you are mostly listening to it. -->
+        <TextView
+            android:id="@+id/summon_reply"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:paddingHorizontal="20dp"
+            android:gravity="center"
+            android:maxLines="5"
+            android:ellipsize="end"
+            android:textColor="@color/on_live_field_muted"
+            android:textSize="15sp"
+            android:lineSpacingExtra="3dp" />
+
+        <!-- Hold to talk, tap the ring's edge (the scrim) to dismiss. Same PTT affordance as Live. -->
+        <FrameLayout
+            android:layout_width="104dp"
+            android:layout_height="104dp"
+            android:layout_marginTop="24dp"
+            android:background="@drawable/bg_ptt_rings">
+
+            <ImageButton
+                android:id="@+id/summon_ptt"
+                android:layout_width="78dp"
+                android:layout_height="78dp"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_ptt"
+                android:contentDescription="@string/ghost_summon_tap"
+                android:src="@drawable/ic_mic"
+                android:scaleType="centerInside"
+                android:padding="21dp"
+                app:tint="@color/white" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/summon_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/ghost_summon_tap"
+            style="@style/TextAppearance.Ghost.Label"
+            android:textColor="@color/on_live_field_muted"
+            android:textSize="11sp" />
+    </LinearLayout>
+</FrameLayout>

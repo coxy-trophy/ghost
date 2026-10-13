@@ -55,11 +55,18 @@ done
 mkdir -p "$WORK" "$LIBS"
 
 # --- 1. the build dependency -------------------------------------------------------------------
-if [ -f "$LIBS/sherpa-onnx.aar" ]; then
+command -v unzip >/dev/null || { echo "unzip is required to validate the speech AAR."; exit 1; }
+if [ -f "$LIBS/sherpa-onnx.aar" ] && unzip -tq "$LIBS/sherpa-onnx.aar" >/dev/null 2>&1; then
   echo "AAR already present ($(wc -c < "$LIBS/sherpa-onnx.aar" | tr -d ' ') bytes)"
 else
   echo "Fetching sherpa-onnx $SHERPA_VERSION..."
-  curl -fL --progress-bar -o "$LIBS/sherpa-onnx.aar" "$AAR_URL"
+  # Publish only a complete archive: interrupted downloads must not poison subsequent builds.
+  AAR_TEMP=$(mktemp "$LIBS/.sherpa-onnx.XXXXXX")
+  trap 'rm -f "$AAR_TEMP"' EXIT
+  curl -fL --progress-bar -o "$AAR_TEMP" "$AAR_URL"
+  unzip -tq "$AAR_TEMP" >/dev/null
+  mv "$AAR_TEMP" "$LIBS/sherpa-onnx.aar"
+  trap - EXIT
 fi
 [ "$AAR_ONLY" = "1" ] && { echo "Done (AAR only)."; exit 0; }
 

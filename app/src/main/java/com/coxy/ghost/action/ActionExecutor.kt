@@ -55,6 +55,8 @@ class ActionExecutor(private val context: Context) {
         if (action.id in com.coxy.ghost.net.LanExecutor.ACTION_IDS) return lan.run(action)
         if (action.id in com.coxy.ghost.net.ios.IosExecutor.ACTION_IDS) return ios.run(action)
         return when (action.id) {
+            "lookup_contact" -> com.coxy.ghost.contacts.ContactTool.run(context, action.params["query"].orEmpty())
+            "read_notifications" -> com.coxy.ghost.notifications.NotificationTool.run(context)
             "toggle_wifi", "toggle_bluetooth",
             "force_stop_app", "disable_app", "uninstall_app", "send_sms" -> SuExecutor.run(action)
             "get_battery", "get_wifi_state", "get_bluetooth_state",
@@ -71,6 +73,9 @@ class ActionExecutor(private val context: Context) {
     /** Surface pending Tier 3 actions as a heads-up notification. */
     fun requestConfirmation(actions: List<Action>) {
         if (actions.isEmpty()) return
+        require(actions.size <= 8 && actions.all { it.tier == ActionTier.TIER_3_DESTRUCTIVE })
+        val requestId = com.coxy.ghost.execution.ConfirmationStore.create(context, actionsToJson(actions))
+            ?: error("Could not save confirmation. Clear expired requests and try again.")
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
@@ -83,39 +88,44 @@ class ActionExecutor(private val context: Context) {
         }
 
         val descriptions = actions.map { ActionCatalog.describe(it.id) }
-        val content = descriptions.joinToString("; ")
+        val content = actions.joinToString("\n\n") { ActionCatalog.confirmationDetails(it) }
 
         val confirmIntent = Intent(context, ActionConfirmReceiver::class.java).apply {
             action = ActionConfirmReceiver.ACTION_CONFIRM
-            putExtra(ActionConfirmReceiver.EXTRA_ACTIONS_JSON, actionsToJson(actions))
+            data = android.net.Uri.parse("ghost://approval/$requestId/${action}")
+            putExtra(ActionConfirmReceiver.EXTRA_REQUEST_ID, requestId)
         }
         val confirmPi = PendingIntent.getBroadcast(
             context, 0, confirmIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_IMMUTABLE
         )
 
         val declineIntent = Intent(context, ActionConfirmReceiver::class.java).apply {
             action = ActionConfirmReceiver.ACTION_DECLINE
-            putExtra(ActionConfirmReceiver.EXTRA_ACTIONS_JSON, actionsToJson(actions))
+            data = android.net.Uri.parse("ghost://approval/$requestId/${action}")
+            putExtra(ActionConfirmReceiver.EXTRA_REQUEST_ID, requestId)
         }
         val declinePi = PendingIntent.getBroadcast(
             context, 1, declineIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("GHOST wants to act")
             .setContentText(content)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .addAction(android.R.drawable.ic_media_play, "Confirm", confirmPi)
             .addAction(android.R.drawable.ic_delete, "Decline", declinePi)
             .setAutoCancel(true)
+            .setDeleteIntent(declinePi)
+            .setTimeoutAfter(300_000)
             .build()
 
-        nm.notify(CONFIRM_NOTIF_ID, notification)
+        nm.notify("ghost_approval:$requestId", CONFIRM_NOTIF_ID, notification)
         Log.i(TAG, "Tier-3 confirmation requested for: $descriptions")
     }
 
@@ -138,6 +148,6 @@ class ActionExecutor(private val context: Context) {
     companion object {
         private const val TAG = "ActionExecutor"
         internal const val CHANNEL_ID = "ghost_actions"
-        private const val CONFIRM_NOTIF_ID = 2
+        internal const val CONFIRM_NOTIF_ID = 2
     }
 }

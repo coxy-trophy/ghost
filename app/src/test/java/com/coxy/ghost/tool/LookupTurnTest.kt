@@ -86,7 +86,7 @@ class LookupTurnTest {
 
     @Test
     fun `blocks stack in front so the user's message stays the last line`() {
-        // CloudPromptFilter's CHAT_ONLY mode reconstructs the turn as "the last non-blank line".
+        // Lookup results must leave the original message as an intact suffix.
         val base = "[CONTEXT activity=still]\nwhat does that page say?"
         val afterSearch = LookupTurn.withBlock(base, "[WEB results for \"x\" — 1. y]")
         val afterFetch = LookupTurn.withBlock(afterSearch, "[WEB page \"y\" (example.com) — text]")
